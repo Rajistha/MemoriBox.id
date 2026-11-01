@@ -14,6 +14,7 @@ const RESERVED = new Set([
   'paket',
   'jadwal',
   'galeri',
+  'kalkulator',
   'login',
   'api',
   'sites',

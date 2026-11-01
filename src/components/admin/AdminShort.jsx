@@ -16,6 +16,7 @@ import {
   FiArrowUpRight,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
+import ShortlinkModal from '@/components/admin/ShortlinkModal';
 import { useModal } from '@/components/ui/ModalProvider';
 import { supabase } from '@/lib/supabase';
 import { formatNumberWithDots } from '@/lib/utils';
@@ -27,7 +28,7 @@ export default function AdminShort() {
   const [copiedSlug, setCopiedSlug] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { confirm, prompt, notify } = useModal();
+  const { confirm, open } = useModal();
 
   const fetchShortlinks = async () => {
     setLoading(true);
@@ -80,64 +81,27 @@ export default function AdminShort() {
     };
   }, []);
 
-  const handleCreate = async () => {
-    const slug = await prompt({
-      title: 'Buat Shortlink Kustom',
-      message: 'Masukkan kata kunci slug singkat (contoh: wedding-cindy, promo-november)',
-      placeholder: 'promo-november',
-      required: true,
-    });
-    if (!slug) return;
-
-    const cleanSlug = slug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, '');
-    if (!cleanSlug) {
-      toast.error('Slug tidak valid!');
-      return;
-    }
-
-    if (links.some((l) => l.slug === cleanSlug)) {
-      toast.error(`Slug "/${cleanSlug}" sudah digunakan! Gunakan nama lain.`);
-      return;
-    }
-
-    const destination = await prompt({
-      title: 'URL Tujuan',
-      message: 'Masukkan alamat tautan lengkap (contoh: https://drive.google.com/...)',
-      placeholder: 'https://...',
-      required: true,
-    });
-    if (!destination) return;
-
-    const newLink = {
-      id: `sl-${Date.now()}`,
-      slug: cleanSlug,
-      destination,
-      title: cleanSlug,
-      clicks: 0,
-      is_active: true,
-      created_at: new Date().toISOString(),
-    };
-
-    try {
-      if (supabase && supabase.from) {
-        await supabase.from('short_links').insert([
-          {
-            slug: cleanSlug,
-            destination,
-            clicks: 0,
-          },
-        ]);
-      }
-    } catch (err) {
-      console.warn('DB insert shortlink error:', err);
-    }
-
-    setLinks([newLink, ...links]);
-    notify({
-      tone: 'success',
-      title: 'Shortlink Dibuat',
-      message: `Tautan memoribox.id/${cleanSlug} kini aktif dan siap dibagikan!`,
-    });
+  // Satu modal: slug dan tujuan diisi bersamaan, disimpan langsung ke database.
+  const handleCreate = () => {
+    open(
+      (close) => (
+        <ShortlinkModal
+          existing={links}
+          onClose={close}
+          onSubmit={async ({ slug, destination }) => {
+            const { data, error } = await supabase
+              .from('short_links')
+              .insert([{ slug, destination, title: slug, clicks: 0, is_active: true }])
+              .select()
+              .single();
+            if (error) throw error;
+            setLinks((prev) => [data, ...prev]);
+            toast.success(`Shortlink /${slug} dibuat`);
+          }}
+        />
+      ),
+      { size: 'md', nonDismissible: true }
+    );
   };
 
   const handleDelete = async (item) => {
@@ -149,23 +113,26 @@ export default function AdminShort() {
     });
     if (!ok) return;
 
-    try {
-      if (supabase && supabase.from) {
-        await supabase.from('short_links').delete().eq('slug', item.slug);
-      }
-    } catch (err) {
-      console.warn('DB delete shortlink error:', err);
+    const { error } = await supabase.from('short_links').delete().eq('slug', item.slug);
+    if (error) {
+      toast.error('Gagal menghapus shortlink');
+      return;
     }
-
     setLinks(links.filter((l) => l.slug !== item.slug));
     toast.success(`Shortlink /${item.slug} dihapus`);
   };
 
-  const handleToggleActive = (slug) => {
-    setLinks((prev) =>
-      prev.map((l) => (l.slug === slug ? { ...l, is_active: !l.is_active } : l))
-    );
-    toast.success('Status shortlink diperbarui');
+  const handleToggleActive = async (slug) => {
+    const current = links.find((l) => l.slug === slug);
+    if (!current) return;
+    const next = !current.is_active;
+    const { error } = await supabase.from('short_links').update({ is_active: next }).eq('slug', slug);
+    if (error) {
+      toast.error('Gagal memperbarui status');
+      return;
+    }
+    setLinks((prev) => prev.map((l) => (l.slug === slug ? { ...l, is_active: next } : l)));
+    toast.success(next ? 'Shortlink diaktifkan' : 'Shortlink dinonaktifkan');
   };
 
   const handleCopy = (slug) => {
