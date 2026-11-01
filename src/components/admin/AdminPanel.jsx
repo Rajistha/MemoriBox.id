@@ -10,6 +10,7 @@ import AdminSidebar, { NAV_SECTIONS } from '@/components/admin/AdminSidebar';
 import AdminBottomBar from '@/components/admin/AdminBottomBar';
 import dynamic from 'next/dynamic';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { isLocalHost } from '@/lib/domains';
 
 // Tab admin dimuat saat dibuka saja (code-splitting) agar panel awal ringan dan tidak lag.
 const TabLoading = () => (
@@ -58,7 +59,7 @@ const SLUG_TAB = {
 };
 const KNOWN_TABS = ['schedule', 'gallery', 'reviews', 'logos', 'offline', 'profil', 'pricelist', 'links', 'short', 'queue', 'sesi', 'usage'];
 
-const basePrefix = () => (['localhost', '127.0.0.1'].includes(window.location.hostname) ? '/admin' : '');
+const basePrefix = () => (isLocalHost() ? '/admin' : '');
 const tabFromLocation = () => {
   const raw = window.location.pathname;
   const path = raw.startsWith('/admin') ? raw.slice('/admin'.length) : raw;
@@ -98,7 +99,7 @@ export default function AdminPanel() {
     if (!ok) return;
     try {
       await supabase.auth.signOut();
-      router.replace(['localhost', '127.0.0.1'].includes(window.location.hostname) ? '/admin/login' : '/login');
+      router.replace(isLocalHost() ? '/admin/login' : '/login');
     } catch {
       toast.error('Gagal logout');
     }

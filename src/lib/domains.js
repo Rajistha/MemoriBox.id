@@ -6,7 +6,9 @@
 //   queue.memoribox.id  antrean pelanggan, layar TV, kios QR, terminal kru
 export const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'memoribox.id';
 
-export const isLocalHost = () =>
-  typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+// Host tanpa subdomain sungguhan (localhost dan alamat *.vercel.app) memakai alias jalur: /admin, /queue, /bio, dst.
+export const isAliasHostname = (host) => ['localhost', '127.0.0.1'].includes(host) || /\.vercel\.app$/.test(host || '');
+
+export const isLocalHost = () => typeof window !== 'undefined' && isAliasHostname(window.location.hostname);
 
 export const siteUrl = (sub, path = '') => `https://${sub ? `${sub}.` : ''}${ROOT_DOMAIN}${path}`;

@@ -1,5 +1,5 @@
 // Helper URL & formatting yang dipakai seluruh ranah Memoribox.
-import { siteUrl } from './domains';
+import { siteUrl, isLocalHost } from './domains';
 
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
@@ -28,7 +28,7 @@ export const getAdminUrl = () => {
 };
 
 export const getBioUrl = () =>
-  typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  typeof window !== 'undefined' && isLocalHost()
     ? '/bio'
     : siteUrl('link');
 
@@ -44,7 +44,7 @@ export const getEventSlug = (item, tokenKey) => {
 
 export const queueBaseUrl = () => {
   if (typeof window === 'undefined') return siteUrl('queue');
-  if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (isLocalHost()) {
     return `${window.location.origin}/queue`;
   }
   return siteUrl('queue');
@@ -53,7 +53,7 @@ export const queueBaseUrl = () => {
 export const queueGuestUrl = (eventOrSlug) => {
   const slug = getEventSlug(eventOrSlug, 'queue_token');
   if (!slug) return '';
-  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (typeof window !== 'undefined' && isLocalHost()) {
     return `/queue/${slug}`;
   }
   return siteUrl('queue', `/${slug}`);
@@ -62,7 +62,7 @@ export const queueGuestUrl = (eventOrSlug) => {
 export const queueDisplayUrl = (eventOrSlug) => {
   const slug = getEventSlug(eventOrSlug, 'queue_token');
   if (!slug) return '';
-  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (typeof window !== 'undefined' && isLocalHost()) {
     return `/queue/${slug}/display`;
   }
   return siteUrl('queue', `/${slug}/display`);
@@ -71,7 +71,7 @@ export const queueDisplayUrl = (eventOrSlug) => {
 export const queueQrUrl = (eventOrSlug) => {
   const slug = getEventSlug(eventOrSlug, 'queue_token');
   if (!slug) return '';
-  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (typeof window !== 'undefined' && isLocalHost()) {
     return `/queue/${slug}/qr`;
   }
   return siteUrl('queue', `/${slug}/qr`);
@@ -79,8 +79,7 @@ export const queueQrUrl = (eventOrSlug) => {
 
 export const getAppBaseUrl = () => {
   if (typeof window === 'undefined') return siteUrl('app');
-  const host = window.location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') {
+  if (isLocalHost()) {
     return window.location.origin;
   }
   return siteUrl('app');
@@ -89,7 +88,7 @@ export const getAppBaseUrl = () => {
 export const queueCrewUrl = (eventOrSlug) => {
   const slug = getEventSlug(eventOrSlug, 'queue_crew_token');
   if (!slug) return '';
-  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (typeof window !== 'undefined' && isLocalHost()) {
     return `/queue/${slug}/crew`;
   }
   return siteUrl('queue', `/${slug}/crew`);
@@ -98,7 +97,7 @@ export const queueCrewUrl = (eventOrSlug) => {
 export const liveUrl = (eventOrSlug) => {
   const slug = getEventSlug(eventOrSlug, 'share_token');
   if (!slug) return '';
-  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (typeof window !== 'undefined' && isLocalHost()) {
     return `/live/${slug}`;
   }
   return siteUrl('live', `/${slug}`);
@@ -107,7 +106,7 @@ export const liveUrl = (eventOrSlug) => {
 export const crewUrl = (eventOrSlug) => {
   const slug = getEventSlug(eventOrSlug, 'crew_token');
   if (!slug) return '';
-  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (typeof window !== 'undefined' && isLocalHost()) {
     return `/live/crew/${slug}`;
   }
   return siteUrl('live', `/crew/${slug}`);

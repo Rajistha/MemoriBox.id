@@ -7,6 +7,7 @@ import { FiMail, FiLock, FiArrowRight } from 'react-icons/fi';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { useModal } from '@/components/ui/ModalProvider';
+import { isLocalHost } from '@/lib/domains';
 import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
@@ -20,7 +21,7 @@ export default function LoginPage() {
   const destination = () => {
     const next = new URLSearchParams(window.location.search).get('next');
     if (next && next.startsWith('/') && !next.startsWith('//') && !next.includes('/login')) return next;
-    return ['localhost', '127.0.0.1'].includes(window.location.hostname) ? '/admin' : '/';
+    return isLocalHost() ? '/admin' : '/';
   };
 
   const handleLogin = async (e) => {

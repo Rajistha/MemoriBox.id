@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isAliasHostname } from '@/lib/domains';
 import { updateSession } from '@/lib/supabase/proxy';
 
 const SUBDOMAINS = ['queue', 'live', 'link', 'app'];
@@ -26,7 +27,8 @@ export async function proxy(request) {
   let site = SUBDOMAINS.find((name) => host.startsWith(name + '.'));
 
   // 3. Mode localhost tanpa subdomain: alias path untuk memudahkan development
-  const isLocal = host === 'localhost' || host === '127.0.0.1';
+  // Alamat *.vercel.app tidak punya subdomain, jadi memakai alias jalur seperti localhost.
+  const isLocal = isAliasHostname(host);
   if (!site && isLocal) {
     if (path === '/admin' || path.startsWith('/admin/') || path === '/spanel' || path.startsWith('/spanel/')) {
       site = 'app';
