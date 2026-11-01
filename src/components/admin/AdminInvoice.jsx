@@ -730,14 +730,14 @@ export function AdminInvoice() {
       {/* ── BAR KONTROL ── */}
       <div className="bg-surface p-4 sm:p-5 rounded-2xl border border-line shadow-card space-y-4">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-          <div className="min-w-0">
+          <div className="min-w-0 xl:flex-1">
             <h3 className="text-xl sm:text-2xl font-bold text-ink-900 font-heading tracking-tight">
               Quotation &amp; Invoice
             </h3>
             <p className="text-sm text-ink-500 mt-0.5 tabular-nums">{form.number}</p>
           </div>
 
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 xl:pb-0 shrink-0">
+          <div className="flex items-center gap-2 overflow-x-auto min-w-0 max-w-full p-1 -m-1 [&>*]:shrink-0">
             <Button variant="secondary" size="sm" icon={FiFilePlus} onClick={handleNewDocument} aria-label="Buat dokumen baru">
               Dokumen Baru
             </Button>
