@@ -1,0 +1,12 @@
+// Peta domain Memoribox. Domain induk dari NEXT_PUBLIC_ROOT_DOMAIN (bawaan memoribox.id).
+//   memoribox.id        landing publik + shortlink
+//   app.memoribox.id    seluruh admin (wajib login)
+//   link.memoribox.id   halaman bio-link publik (menu Tautan)
+//   live.memoribox.id   halaman sesi pelanggan (countdown & album) + input kru sesi
+//   queue.memoribox.id  antrean pelanggan, layar TV, kios QR, terminal kru
+export const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'memoribox.id';
+
+export const isLocalHost = () =>
+  typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+export const siteUrl = (sub, path = '') => `https://${sub ? `${sub}.` : ''}${ROOT_DOMAIN}${path}`;

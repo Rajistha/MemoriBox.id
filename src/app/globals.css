@@ -1,0 +1,248 @@
+@import "tailwindcss";
+
+@theme {
+  /* Kuning (brand) */
+  --color-yellow-50:  #FFFBEB;
+  --color-yellow-100: #FFF3C4;
+  --color-yellow-200: #FFE88A;
+  --color-yellow-300: #FFDB4D;
+  --color-yellow-400: #FFCF24;
+  --color-yellow-500: #FFC400; /* PRIMARY */
+  --color-yellow-600: #E6AC00; /* hover */
+  --color-yellow-700: #B38600; /* ikon/aksen non-teks */
+  --color-yellow-800: #7A5C00; /* teks kuning di atas putih (kontras >= 5:1) */
+
+  /* Tinta & netral hangat */
+  --color-ink-900: #1C1700; /* teks utama, teks di atas kuning */
+  --color-ink-700: #4A4220;
+  --color-ink-500: #7A7357;
+  --color-ink-300: #C9C2A5;
+  --color-line:    #EFE8CC; /* border */
+  --color-bg:      #FFFDF5; /* latar halaman */
+  --color-surface: #FFFFFF; /* kartu */
+
+  /* Status */
+  --color-success: #16A34A;
+  --color-danger:  #DC2626;
+  --color-info:    #2563EB;
+  --color-warning: #EA580C;
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;   /* kartu besar & hero */
+  --radius-pill: 999px;
+
+  /* Bayangan */
+  --shadow-card:  0 1px 2px rgba(28,23,0,.04), 0 4px 16px rgba(28,23,0,.06);
+  --shadow-float: 0 12px 40px rgba(28,23,0,.16);
+}
+
+@theme inline {
+  --font-heading: var(--font-plus-jakarta), "Poppins", system-ui, sans-serif;
+  --font-body: var(--font-inter), system-ui, sans-serif;
+}
+
+html,
+body {
+  scroll-behavior: smooth;
+  scroll-padding-top: 80px;
+  overflow-x: hidden;
+  max-width: 100vw;
+  background-color: #FAFAF8;
+  color: #18181B;
+}
+
+/* Scoped Font Styling for A4 Printable Document */
+#printable-document, #printable-document *:not(svg):not(text):not(tspan):not(textPath) {
+  font-family: var(--selected-font, var(--font-body)) !important;
+}
+#printable-document .font-mono {
+  font-family: var(--selected-font, var(--font-body)) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+:root {
+  /* ADMIN PROFESSIONAL THEME (Clean Studio Palette: Warm White, Slate & Gold) */
+  --admin-bg: #FAFAF8;
+  --admin-surface: #FFFFFF;
+  --admin-border: #E4E4E7;
+  --admin-border-subtle: #F4F4F5;
+  --admin-text-main: #18181B;
+  --admin-text-muted: #71717A;
+  --admin-text-subtle: #A1A1AA;
+  --admin-primary: #FFC400;
+  --admin-primary-hover: #F59E0B;
+  --admin-accent: #B45309;
+  --admin-accent-hover: #92400E;
+  --admin-accent-bg: #FEF3C7;
+  --admin-hero-grad: #FFFBEB;
+  --admin-ok: #10B981;
+  --admin-warn: #F59E0B;
+  --admin-danger: #EF4444;
+  --admin-sidebar-bg: #FFFFFF;
+  --admin-hover-bg: #F4F4F5;
+  --admin-hover-text: #18181B;
+  --admin-glass-bg: rgba(255, 255, 255, 0.95);
+  --admin-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  --admin-input-bg: #FFFFFF;
+}
+
+/* ==========================================================================
+   PROFESSIONAL STUDIO DESIGN SYSTEM (Clean, Elegant, Structured)
+   ========================================================================== */
+
+.cartoon-card,
+.pro-card {
+  background-color: #FFFFFF;
+  border: 1px solid #E4E4E7;
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+}
+
+.cartoon-card-yellow,
+.pro-card-hero {
+  background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
+  border: 1px solid #FDE68A;
+  border-radius: 1rem;
+  box-shadow: 0 2px 6px 0 rgba(245, 158, 11, 0.08);
+}
+
+.cartoon-card-subtle,
+.pro-card-subtle {
+  background-color: #FAFAFA;
+  border: 1px solid #E4E4E7;
+  border-radius: 0.875rem;
+  box-shadow: none;
+}
+
+.cartoon-btn-yellow,
+.pro-btn-primary {
+  background-color: #FFC400;
+  color: #18181B;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.cartoon-btn-yellow:hover,
+.pro-btn-primary:hover {
+  background-color: #F59E0B;
+  box-shadow: 0 2px 4px 0 rgba(245, 158, 11, 0.2);
+}
+.cartoon-btn-yellow:active,
+.pro-btn-primary:active {
+  transform: scale(0.98);
+}
+
+.cartoon-btn-white,
+.pro-btn-secondary {
+  background-color: #FFFFFF;
+  color: #27272A;
+  border: 1px solid #E4E4E7;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.cartoon-btn-white:hover,
+.pro-btn-secondary:hover {
+  background-color: #F4F4F5;
+  border-color: #D4D4D8;
+}
+.cartoon-btn-white:active,
+.pro-btn-secondary:active {
+  transform: scale(0.98);
+}
+
+.cartoon-btn-black,
+.pro-btn-dark {
+  background-color: #18181B;
+  color: #FFFFFF;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.cartoon-btn-black:hover,
+.pro-btn-dark:hover {
+  background-color: #27272A;
+}
+.cartoon-btn-black:active,
+.pro-btn-dark:active {
+  transform: scale(0.98);
+}
+
+.cartoon-badge,
+.pro-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid #E4E4E7;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  background-color: #FFFFFF;
+  color: #27272A;
+}
+
+.cartoon-input,
+.pro-input {
+  background-color: #FFFFFF;
+  border: 1px solid #D4D4D8;
+  border-radius: 0.75rem;
+  padding: 0.55rem 0.875rem;
+  font-weight: 500;
+  color: #18181B;
+  transition: all 0.15s ease;
+}
+.cartoon-input:focus,
+.pro-input:focus {
+  outline: none;
+  border-color: #F59E0B;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+
+/* Mozaik hero bergerak ke samping (marquee). Berhenti saat di-hover; dimatikan bila pengguna memilih reduced motion. */
+@keyframes marquee-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-x var(--marquee-duration, 40s) linear infinite;
+}
+.marquee-reverse { animation-direction: reverse; }
+.marquee:hover .marquee-track { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+}
+
+/* Animasi modal & bottom sheet (CSS murni agar framer-motion tidak ikut dimuat di halaman publik). */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
+@keyframes sheet-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(30px); } }
+.anim-fade-in { animation: fade-in 0.18s ease-out both; }
+.anim-fade-out { animation: fade-out 0.18s ease-in both; }
+.anim-sheet-in { animation: sheet-in 0.2s ease-out both; }
+.anim-sheet-out { animation: sheet-out 0.18s ease-in both; }
+
+/* Animasi masuk hero & elemen melayang (dimatikan bila pengguna memilih kurangi gerakan). */
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes float-y { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+.anim-rise { animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-float { animation: float-y 6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .anim-rise, .anim-float { animation: none; }
+  .anim-fade-in, .anim-fade-out, .anim-sheet-in, .anim-sheet-out { animation-duration: 0.01ms; }
+}
