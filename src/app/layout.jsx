@@ -1,4 +1,6 @@
 import { Plus_Jakarta_Sans, Inter } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import { ModalProvider } from '@/components/ui/ModalProvider';
 import './globals.css';
 
@@ -95,6 +97,8 @@ export default function RootLayout({ children }) {
         <ModalProvider>
           {children}
         </ModalProvider>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
