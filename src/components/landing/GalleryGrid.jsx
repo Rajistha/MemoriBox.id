@@ -2,14 +2,13 @@
 
 import React, { useMemo, useState } from 'react';
 import Image from 'next/image';
-import { useModal } from '@/components/ui/ModalProvider';
-import { GalleryLightbox, FilterPills, categoriesOf, labelOf } from './GalleryLightbox';
+import { GalleryViewer, FilterPills, categoriesOf, labelOf } from './GalleryLightbox';
 
 const PAGE = 20;
 
 /** Halaman /galeri: seluruh foto dengan filter kategori dan pemuatan bertahap. */
 export function GalleryGrid({ gallery = [] }) {
-  const { open } = useModal();
+  const [viewing, setViewing] = useState(null);
   const [category, setCategory] = useState('all');
   const [visible, setVisible] = useState(PAGE);
 
@@ -35,12 +34,14 @@ export function GalleryGrid({ gallery = [] }) {
         }}
       />
 
+      <GalleryViewer items={items.slice(0, visible)} index={viewing} onChange={setViewing} onClose={() => setViewing(null)} />
+
       <ul className="mt-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-        {items.slice(0, visible).map((item) => (
+        {items.slice(0, visible).map((item, i) => (
           <li key={item.id}>
             <button
               type="button"
-              onClick={() => open((close) => <GalleryLightbox item={item} onClose={close} />, { size: 'md' })}
+              onClick={() => setViewing(i)}
               className="relative block w-full aspect-2/3 overflow-hidden rounded-2xl border border-line bg-gray-100 group"
               aria-label={`Perbesar foto ${item.title || labelOf(item.category)}`}
             >

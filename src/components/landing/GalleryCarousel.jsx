@@ -4,15 +4,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
-import { useModal } from '@/components/ui/ModalProvider';
 import SectionHeader from './SectionHeader';
-import { GalleryLightbox, FilterPills, categoriesOf, labelOf } from './GalleryLightbox';
+import { GalleryViewer, FilterPills, categoriesOf, labelOf } from './GalleryLightbox';
 
 const PREVIEW = 12;
 
 /** Galeri di beranda: filter kategori + carousel foto yang bisa digeser. "Muat lebih banyak" membuka halaman /galeri. */
 export function GalleryCarousel({ gallery = [] }) {
-  const { open } = useModal();
+  const [viewing, setViewing] = useState(null);
   const [category, setCategory] = useState('all');
   const trackRef = useRef(null);
   const [overflowing, setOverflowing] = useState(false);
@@ -69,11 +68,11 @@ export function GalleryCarousel({ gallery = [] }) {
             ref={trackRef}
             className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-2 scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            {items.map((item) => (
-              <li key={item.id} className="snap-start shrink-0 w-44 sm:w-52 lg:w-56 first:ml-auto last:mr-auto">
+            {items.map((item, i) => (
+              <li key={item.id} className="snap-start shrink-0 w-56 sm:w-64 lg:w-72 first:ml-auto last:mr-auto">
                 <button
                   type="button"
-                  onClick={() => open((close) => <GalleryLightbox item={item} onClose={close} />, { size: 'md' })}
+                  onClick={() => setViewing(i)}
                   className="relative block w-full aspect-2/3 overflow-hidden rounded-2xl border border-line bg-gray-100 group"
                   aria-label={`Perbesar foto ${item.title || labelOf(item.category)}`}
                 >
@@ -82,7 +81,7 @@ export function GalleryCarousel({ gallery = [] }) {
                     alt={item.alt || 'Foto acara MemoriBox'}
                     fill
                     loading="lazy"
-                    sizes="(max-width: 640px) 176px, 224px"
+                    sizes="(max-width: 640px) 224px, 288px"
                     className="object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                 </button>
@@ -90,6 +89,8 @@ export function GalleryCarousel({ gallery = [] }) {
             ))}
           </ul>
         </div>
+
+        <GalleryViewer items={items} index={viewing} onChange={setViewing} onClose={() => setViewing(null)} />
 
         {gallery.length > items.length && (
         <div className="mt-8 flex justify-center">
