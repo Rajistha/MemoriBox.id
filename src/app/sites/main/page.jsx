@@ -6,6 +6,7 @@ import GalleryCarousel from '@/components/landing/GalleryCarousel';
 import PricePackages from '@/components/landing/PricePackages';
 import BookingCalendarSection from '@/components/landing/BookingCalendarSection';
 import OfflineLocations from '@/components/landing/OfflineLocations';
+import FindUs from '@/components/landing/FindUs';
 import ClientMarquee from '@/components/landing/ClientMarquee';
 import ReviewSlider from '@/components/landing/ReviewSlider';
 import FaqSection from '@/components/landing/FaqSection';
@@ -45,7 +46,7 @@ export const metadata = {
 };
 
 export default async function MainPage() {
-  const { packages, gallery, reviews, logos, bookedEvents, offline, profile } = await getLandingData();
+  const { packages, gallery, reviews, logos, offline, profile } = await getLandingData();
 
   return (
     <SiteShell showGallery={gallery.length > 0}>
@@ -57,11 +58,12 @@ export default async function MainPage() {
         eyebrow={['Photobooth & Photobox', profile.area].filter(Boolean).join(' · ')}
       />
       <ClientMarquee logos={logos} />
+      <FindUs profile={profile} />
+      <OfflineLocations locations={offline} />
+      <BookingCalendarSection />
+      <PricePackages packages={packages} />
       <Services services={profile.services} />
       <GalleryCarousel gallery={gallery} />
-      <PricePackages packages={packages} />
-      <OfflineLocations locations={offline} />
-      <BookingCalendarSection events={bookedEvents} />
       <ReviewSlider reviews={reviews} />
       <FaqSection faqs={profile.faqs} />
       <ContactSection />

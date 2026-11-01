@@ -1,5 +1,5 @@
 // Data harga bawaan resmi Memoribox Photobooth & Photobox.
-// Nama paket, tagline, dan daftar harga bisa ditimpa dari dashboard admin (tabel site_settings, key 'pricelist').
+// Nama paket, tagline, dan daftar harga bisa ditimpa dari dashboard admin (tabel settings, key 'pricelist').
 export const DEFAULT_PACKAGES = [
   {
     id: 'softfile',

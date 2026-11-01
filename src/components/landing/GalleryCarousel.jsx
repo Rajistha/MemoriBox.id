@@ -38,7 +38,7 @@ export function GalleryCarousel({ gallery = [] }) {
   };
 
   return (
-    <section id="galeri" className="py-16 md:py-24 bg-white">
+    <section id="galeri" className="py-16 md:py-24 bg-white border-t border-line">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <SectionHeader eyebrow="Galeri" title="Hasil foto dari acara yang pernah kami tangani." />
 

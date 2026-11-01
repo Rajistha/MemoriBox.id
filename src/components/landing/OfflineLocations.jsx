@@ -23,22 +23,22 @@ export function OfflineLocations({ locations = [] }) {
           title="Temukan Memoribox Offline"
         />
 
-        <ul className={`mt-10 grid gap-6 ${locations.length === 1 ? 'max-w-xl mx-auto' : 'md:grid-cols-2'}`}>
+        <ul className={`mt-10 grid gap-5 ${locations.length === 1 ? 'max-w-md mx-auto' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
           {locations.map((loc, i) => (
             <Reveal as="li" key={loc.id} delay={i * 120}>
-              <article className="h-full rounded-4xl border border-line bg-surface shadow-card p-4 sm:p-5 flex flex-col">
-                <div className="relative aspect-4/3 rounded-3xl overflow-hidden bg-yellow-50">
+              <article className="h-full rounded-3xl border border-line bg-surface shadow-card p-3.5 sm:p-4 flex flex-col">
+                <div className="relative aspect-4/3 rounded-2xl overflow-hidden bg-yellow-50">
                   {loc.image_url && (
-                    <Image src={loc.image_url} alt={loc.title} fill sizes="(max-width: 768px) 100vw, 540px" className="object-cover" />
+                    <Image src={loc.image_url} alt={loc.title} fill sizes="(max-width: 640px) 100vw, 448px" className="object-cover" />
                   )}
                 </div>
-                <div className="flex items-center justify-between gap-3 mt-5">
+                <div className="flex items-center justify-between gap-3 mt-4">
                   <span className="text-sm font-semibold text-ink-700 truncate">{loc.partner}</span>
                   <span className={`px-3 py-1 rounded-full border text-[10px] font-bold uppercase tracking-[0.12em] shrink-0 ${BADGE[loc.status] || BADGE.open}`}>
                     {statusLabel(loc.status)}
                   </span>
                 </div>
-                <h3 className="mt-2 font-heading font-extrabold text-2xl text-ink-900">{loc.title}</h3>
+                <h3 className="mt-2 font-heading font-extrabold text-xl text-ink-900">{loc.title}</h3>
                 {loc.city && (
                   <p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink-500">
                     <FiMapPin className="shrink-0" /> {loc.city}
@@ -50,7 +50,7 @@ export function OfflineLocations({ locations = [] }) {
                   rel="noreferrer"
                   className="mt-auto pt-0"
                 >
-                  <span className="mt-5 flex items-center justify-center gap-2 h-12 rounded-full bg-yellow-500 text-ink-900 font-bold text-sm hover:bg-yellow-600 transition-colors">
+                  <span className="mt-4 flex items-center justify-center gap-2 h-11 rounded-full bg-yellow-500 text-ink-900 font-bold text-sm hover:bg-yellow-600 transition-colors">
                     Petunjuk Arah <FiArrowRight />
                   </span>
                 </a>

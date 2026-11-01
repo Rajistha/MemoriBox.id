@@ -443,7 +443,7 @@ export function AdminInvoice() {
     let ignore = false;
     (async () => {
       try {
-        const { data } = await supabase.from('site_settings').select('value').eq('key', 'pricelist').maybeSingle();
+        const { data } = await supabase.from('settings').select('value').eq('key', 'pricelist').maybeSingle();
         if (!ignore && data?.value?.packages) setPackages(mergePackages(data.value.packages));
       } catch {
         // pakai paket bawaan

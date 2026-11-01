@@ -62,7 +62,7 @@ export default function AdminPricelist() {
     const load = async () => {
       try {
         const { data, error } = await supabase
-          .from('site_settings')
+          .from('settings')
           .select('value')
           .eq('key', 'pricelist')
           .maybeSingle();
@@ -208,17 +208,17 @@ export default function AdminPricelist() {
         updated_at: new Date().toISOString(),
       };
 
-      try {
-        await supabase.from('site_settings').upsert({ key: 'pricelist', value: payload }, { onConflict: 'key' });
-      } catch (err) {
-        console.warn('DB upsert fallback:', err);
-      }
+      const { error } = await supabase
+        .from('settings')
+        .upsert({ key: 'pricelist', value: payload, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (error) throw error;
 
       setDirty(false);
       setPdfDirty(false);
       toast.success('Pricelist & Paket berhasil disimpan!');
     } catch (error) {
-      toast.error('Gagal menyimpan pricelist');
+      console.error('Simpan pricelist gagal:', error);
+      toast.error(`Gagal menyimpan: ${error?.message || 'Error'}`);
     } finally {
       setSaving(false);
     }
