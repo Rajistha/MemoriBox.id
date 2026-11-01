@@ -24,7 +24,7 @@ function PhotoStrip({ className = '' }) {
 
 function MascotHero() {
   return (
-    <div className="relative rounded-4xl bg-yellow-500 h-72 sm:h-120 lg:h-136 overflow-hidden flex items-center justify-center gap-4 sm:gap-6">
+    <div className="relative rounded-4xl bg-yellow-500 h-88 sm:h-120 lg:h-136 overflow-hidden flex items-center justify-center gap-4 sm:gap-6">
       <PhotoStrip className="anim-float w-28 sm:w-36 -rotate-6 mt-10" />
       <PhotoStrip className="anim-float w-32 sm:w-44 z-10 [animation-delay:-2s]" />
       <PhotoStrip className="anim-float w-28 sm:w-36 rotate-6 mb-10 [animation-delay:-4s]" />
@@ -106,7 +106,7 @@ export function Hero({ gallery = [], logos = [], points = [], mosaic = false, ey
   const useMosaic = mosaic && photos.length + logoList.length > 0;
 
   return (
-    <section id="beranda" className="pt-24 md:pt-36 pb-16 md:pb-24 bg-white">
+    <section id="beranda" className="pt-28 md:pt-36 pb-16 md:pb-24 bg-white">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-12 gap-10 lg:gap-14 items-center">
         <div className="lg:col-span-5">
           <p className="anim-rise text-xs font-bold uppercase tracking-[0.18em] text-ink-500">{eyebrow}</p>
@@ -144,7 +144,7 @@ export function Hero({ gallery = [], logos = [], points = [], mosaic = false, ey
           )}
         </div>
 
-        <div className="order-first lg:order-last lg:col-span-7 min-w-0">
+        <div className="lg:col-span-7 min-w-0">
           <div style={{ animationDelay: '200ms' }} className="anim-rise">
             {useMosaic ? <MosaicHero photos={photos} logos={logoList} /> : <MascotHero />}
           </div>
