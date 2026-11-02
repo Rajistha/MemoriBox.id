@@ -55,7 +55,8 @@ export default async function MainPage() {
         logos={logos}
         points={profile.highlights}
         mosaic={profile.heroMosaic}
-        eyebrow={['Photobooth & Photobox', profile.area].filter(Boolean).join(' · ')}
+        eyebrow="Photobooth & Photobox"
+        area={profile.area}
       />
       <ClientMarquee logos={logos} />
       <FindUs profile={profile} />

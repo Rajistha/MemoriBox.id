@@ -32,8 +32,19 @@ export function ModalProvider({ children }) {
   }, []);
 
   // Menutup modal: promise langsung diselesaikan, lalu elemen dilepas setelah animasi keluar selesai.
-  const close = useCallback((id, value) => {
+  const close = useCallback((id, value, instant = false) => {
     let found = false;
+    if (instant) {
+      setStack((s) =>
+        s.filter((m) => {
+          if (m.id !== id) return true;
+          found = true;
+          if (typeof m.resolve === 'function') m.resolve(value);
+          return false;
+        })
+      );
+      return found;
+    }
     setStack((s) =>
       s.map((m) => {
         if (m.id !== id || m.closing) return m;
@@ -134,8 +145,8 @@ export function ModalProvider({ children }) {
             title={m.opts.title}
             hideCloseButton={m.opts.hideCloseButton}
             nonDismissible={m.opts.nonDismissible}
-            onDismiss={() => {
-              if (!m.opts.nonDismissible) close(m.id, undefined);
+            onDismiss={(val, instant) => {
+              if (!m.opts.nonDismissible) close(m.id, val, instant);
             }}
           >
             {m.render((val) => close(m.id, val))}
@@ -148,106 +159,211 @@ export function ModalProvider({ children }) {
 function ModalShell({ children, size = 'md', index = 0, closing = false, onDismiss, nonDismissible }) {
   const containerRef = useRef(null);
   const sheetRef = useRef(null);
+  const backdropRef = useRef(null);
 
-  // --- Swipe-to-dismiss state (mobile bottom sheet) ---
-  const dragState = useRef({ startY: 0, currentY: 0, dragging: false, startedOnHandle: false });
-  const DISMISS_THRESHOLD = 80; // px to swipe before dismissing
+  // --- Swipe-to-dismiss (mobile bottom sheet) ---
+  const dragState = useRef({ startY: 0, startX: 0, currentY: 0, dragging: false, startedOnHandle: false });
+  const DISMISS_THRESHOLD = 80;
+  const dismissRef = useRef(onDismiss);
+  const nonDismissibleRef = useRef(nonDismissible);
 
-  const handleTouchStart = useCallback((e) => {
-    if (nonDismissible) return;
+  useEffect(() => {
+    dismissRef.current = onDismiss;
+    nonDismissibleRef.current = nonDismissible;
+  }, [onDismiss, nonDismissible]);
+
+  useEffect(() => {
     const sheet = sheetRef.current;
+    const backdrop = backdropRef.current;
     if (!sheet) return;
 
-    // Determine if touch started on the drag handle (the bar at the top)
-    const handle = sheet.querySelector('[data-drag-handle]');
-    const startedOnHandle = handle && handle.contains(e.target);
+    // Hanya aktif di layar mobile (< 768px / md breakpoint)
+    const isMobile = () => window.matchMedia('(max-width: 767px)').matches;
 
-    // Only allow drag from handle, or from content area when scrolled to top
-    const contentEl = sheet.querySelector('[data-modal-content]');
-    const scrolledToTop = !contentEl || contentEl.scrollTop <= 0;
+    // --- Touch Events (Mobile) ---
+    const onTouchStart = (e) => {
+      if (nonDismissibleRef.current || !isMobile()) return;
 
-    if (!startedOnHandle && !scrolledToTop) return;
+      const handle = sheet.querySelector('[data-drag-handle]');
+      const startedOnHandle = handle && handle.contains(e.target);
 
-    dragState.current = {
-      startY: e.touches[0].clientY,
-      currentY: e.touches[0].clientY,
-      dragging: false,
-      startedOnHandle,
-    };
-  }, [nonDismissible]);
-
-  const handleTouchMove = useCallback((e) => {
-    const ds = dragState.current;
-    if (ds.startY === 0) return;
-
-    const currentY = e.touches[0].clientY;
-    const deltaY = currentY - ds.startY;
-
-    // Only activate dragging for downward movement
-    if (deltaY < 0) {
-      // Trying to swipe up – reset and allow normal scroll
-      if (!ds.dragging) return;
-      // If already dragging, clamp at 0
-      ds.currentY = ds.startY;
-      if (sheetRef.current) sheetRef.current.style.transform = 'translateY(0)';
-      return;
-    }
-
-    // When drag started on content area (not handle), only activate if still scrolled to top
-    if (!ds.startedOnHandle) {
-      const contentEl = sheetRef.current?.querySelector('[data-modal-content]');
-      if (contentEl && contentEl.scrollTop > 0) {
-        ds.startY = 0; // cancel this drag
+      // Jangan cegah interaksi form control jika bukan drag handle
+      if (!startedOnHandle && e.target.closest('input, textarea, select, button, a')) {
         return;
       }
+
+      const contentEl = sheet.querySelector('[data-modal-content]');
+      const scrolledToTop = !contentEl || contentEl.scrollTop <= 0;
+
+      if (!startedOnHandle && !scrolledToTop) return;
+
+      const touch = e.touches[0];
+      dragState.current = {
+        startY: touch.clientY,
+        startX: touch.clientX,
+        currentY: touch.clientY,
+        dragging: false,
+        startedOnHandle,
+      };
+    };
+
+    const onTouchMove = (e) => {
+      const ds = dragState.current;
+      if (ds.startY === 0) return;
+
+      const touch = e.touches[0];
+      const deltaY = touch.clientY - ds.startY;
+      const deltaX = touch.clientX - ds.startX;
+
+      // Jika geser horizontal lebih dominan sebelum drag aktif, batalkan drag
+      if (!ds.dragging && Math.abs(deltaX) > Math.abs(deltaY)) {
+        ds.startY = 0;
+        return;
+      }
+
+      // Jika di area konten & sedang scroll ke atas, biarkan scroll biasa
+      if (!ds.startedOnHandle && deltaY < 0 && !ds.dragging) {
+        return;
+      }
+
+      // Validasi scrollTop jika dimulai di konten
+      if (!ds.startedOnHandle && !ds.dragging) {
+        const contentEl = sheet.querySelector('[data-modal-content]');
+        if (contentEl && contentEl.scrollTop > 0) {
+          ds.startY = 0;
+          return;
+        }
+      }
+
+      // Mulai drag setelah pergeseran minimal 6px ke bawah
+      if (!ds.dragging && deltaY > 6) {
+        ds.dragging = true;
+        sheet.style.animation = 'none';
+        sheet.style.transition = 'none';
+      }
+
+      if (ds.dragging) {
+        if (e.cancelable) e.preventDefault();
+        ds.currentY = touch.clientY;
+
+        // Gerakan 1:1 saat ditarik ke bawah; teredam bila ditarik ke atas
+        const y = deltaY > 0 ? deltaY : deltaY * 0.2;
+        sheet.style.setProperty('transform', `translateY(${y}px)`, 'important');
+
+        if (backdrop) {
+          const progress = Math.min(Math.max(0, deltaY / 320), 1);
+          backdrop.style.opacity = `${1 - progress * 0.6}`;
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      const ds = dragState.current;
+      if (!ds.dragging) {
+        ds.startY = 0;
+        return;
+      }
+
+      const deltaY = ds.currentY - ds.startY;
+
+      if (deltaY > DISMISS_THRESHOLD && !nonDismissibleRef.current) {
+        sheet.style.pointerEvents = 'none';
+        sheet.style.transition = 'transform 0.2s cubic-bezier(0.32, 0.72, 0, 1)';
+        sheet.style.setProperty('transform', 'translateY(100%)', 'important');
+        if (backdrop) {
+          backdrop.style.transition = 'opacity 0.2s ease';
+          backdrop.style.opacity = '0';
+        }
+        setTimeout(() => {
+          if (dismissRef.current) dismissRef.current(undefined, true);
+        }, 200);
+      } else {
+        sheet.style.transition = 'transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)';
+        sheet.style.setProperty('transform', 'translateY(0)', 'important');
+        if (backdrop) {
+          backdrop.style.transition = 'opacity 0.25s ease';
+          backdrop.style.opacity = '1';
+        }
+      }
+
+      dragState.current = { startY: 0, startX: 0, currentY: 0, dragging: false, startedOnHandle: false };
+    };
+
+    sheet.addEventListener('touchstart', onTouchStart, { passive: true });
+    sheet.addEventListener('touchmove', onTouchMove, { passive: false });
+    sheet.addEventListener('touchend', onTouchEnd, { passive: true });
+    sheet.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+    // --- Mouse Dragging pada Handle (untuk testing desktop/responsive mode) ---
+    const handleEl = sheet.querySelector('[data-drag-handle]');
+    let isMouseDown = false;
+    let mouseStartY = 0;
+
+    const onMouseMove = (e) => {
+      if (!isMouseDown) return;
+      const deltaY = e.clientY - mouseStartY;
+      const y = deltaY > 0 ? deltaY : deltaY * 0.2;
+      sheet.style.setProperty('transform', `translateY(${y}px)`, 'important');
+      if (backdrop) {
+        const progress = Math.min(Math.max(0, deltaY / 320), 1);
+        backdrop.style.opacity = `${1 - progress * 0.6}`;
+      }
+    };
+
+    const onMouseUp = (e) => {
+      if (!isMouseDown) return;
+      isMouseDown = false;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      const deltaY = e.clientY - mouseStartY;
+      if (deltaY > DISMISS_THRESHOLD && !nonDismissibleRef.current) {
+        sheet.style.pointerEvents = 'none';
+        sheet.style.transition = 'transform 0.2s cubic-bezier(0.32, 0.72, 0, 1)';
+        sheet.style.setProperty('transform', 'translateY(100%)', 'important');
+        if (backdrop) {
+          backdrop.style.transition = 'opacity 0.2s ease';
+          backdrop.style.opacity = '0';
+        }
+        setTimeout(() => {
+          if (dismissRef.current) dismissRef.current(undefined, true);
+        }, 200);
+      } else {
+        sheet.style.transition = 'transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)';
+        sheet.style.setProperty('transform', 'translateY(0)', 'important');
+        if (backdrop) {
+          backdrop.style.transition = 'opacity 0.25s ease';
+          backdrop.style.opacity = '1';
+        }
+      }
+    };
+
+    const onMouseDown = (e) => {
+      if (nonDismissibleRef.current || !isMobile() || e.button !== 0) return;
+      isMouseDown = true;
+      mouseStartY = e.clientY;
+      sheet.style.animation = 'none';
+      sheet.style.transition = 'none';
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+
+    if (handleEl) {
+      handleEl.addEventListener('mousedown', onMouseDown);
     }
 
-    ds.dragging = true;
-    ds.currentY = currentY;
-
-    // Prevent default to block underlying page scroll while dragging
-    e.preventDefault();
-
-    // Apply rubber-band damped translation
-    const rawDelta = currentY - ds.startY;
-    const dampedDelta = rawDelta * 0.7; // slight resistance
-    if (sheetRef.current) {
-      sheetRef.current.style.transform = `translateY(${dampedDelta}px)`;
-      sheetRef.current.style.transition = 'none';
-    }
+    return () => {
+      sheet.removeEventListener('touchstart', onTouchStart);
+      sheet.removeEventListener('touchmove', onTouchMove);
+      sheet.removeEventListener('touchend', onTouchEnd);
+      sheet.removeEventListener('touchcancel', onTouchEnd);
+      if (handleEl) {
+        handleEl.removeEventListener('mousedown', onMouseDown);
+      }
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
   }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    const ds = dragState.current;
-    if (!ds.dragging) {
-      ds.startY = 0;
-      return;
-    }
-
-    const deltaY = ds.currentY - ds.startY;
-    const sheet = sheetRef.current;
-
-    if (deltaY > DISMISS_THRESHOLD && !nonDismissible) {
-      // Dismiss: slide fully off-screen then call onDismiss
-      if (sheet) {
-        sheet.style.transition = 'transform 0.2s ease-in';
-        sheet.style.transform = 'translateY(100%)';
-      }
-      // Wait for animation then close
-      setTimeout(() => {
-        if (onDismiss) onDismiss();
-      }, 180);
-    } else {
-      // Snap back
-      if (sheet) {
-        sheet.style.transition = 'transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)';
-        sheet.style.transform = 'translateY(0)';
-      }
-    }
-
-    // Reset state
-    dragState.current = { startY: 0, currentY: 0, dragging: false, startedOnHandle: false };
-  }, [nonDismissible, onDismiss]);
 
   // Focus trap
   useEffect(() => {
@@ -282,6 +398,7 @@ function ModalShell({ children, size = 'md', index = 0, closing = false, onDismi
     >
       {/* Backdrop */}
       <div
+        ref={backdropRef}
         onClick={nonDismissible || closing ? undefined : onDismiss}
         className={`fixed inset-0 bg-[#1C1700]/50 backdrop-blur-[4px] ${closing ? 'anim-fade-out' : 'anim-fade-in'}`}
       />
@@ -291,13 +408,14 @@ function ModalShell({ children, size = 'md', index = 0, closing = false, onDismi
         ref={sheetRef}
         style={{ zIndex: zIndexContent }}
         className={`relative w-full ${sizeClasses} bg-white text-ink-900 shadow-float rounded-t-3xl md:rounded-3xl border border-line max-h-[90dvh] md:max-h-[90vh] flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,16px)] md:pb-0 ${closing ? 'anim-sheet-out' : 'anim-sheet-in'}`}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
         {/* Mobile Drag Handle — swipe down to close */}
-        <div data-drag-handle className="md:hidden flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing select-none touch-none">
-          <div className="w-12 h-1.5 rounded-full bg-ink-300" />
+        <div
+          data-drag-handle
+          className="md:hidden flex justify-center pt-3 pb-2.5 cursor-grab active:cursor-grabbing select-none touch-none"
+          style={{ touchAction: 'none' }}
+        >
+          <div className="w-12 h-1.5 rounded-full bg-ink-300 pointer-events-none" />
         </div>
 
         {/* Content body */}

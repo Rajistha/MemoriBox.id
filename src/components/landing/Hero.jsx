@@ -99,17 +99,41 @@ function MosaicHero({ photos, logos }) {
   );
 }
 
-export function Hero({ gallery = [], logos = [], points = [], mosaic = false, eyebrow = 'Photobooth & Photobox' }) {
+export function Hero({
+  gallery = [],
+  logos = [],
+  points = [],
+  mosaic = false,
+  eyebrow = 'Photobooth & Photobox',
+  area = '',
+}) {
   const photos = gallery.slice(0, 12);
   const logoList = logos.slice(0, 12);
   // Mosaik hanya tampil bila diaktifkan di admin (Profil) dan ada foto atau logo; selain itu maskot.
   const useMosaic = mosaic && photos.length + logoList.length > 0;
 
+  // Mendukung pemisahan teks wilayah (mis. "Jabodetabek & Bali") ke baris kedua pada tampilan mobile
+  let mainEyebrow = eyebrow;
+  let areaText = area;
+  if (!areaText && typeof eyebrow === 'string' && eyebrow.includes(' · ')) {
+    const parts = eyebrow.split(' · ');
+    mainEyebrow = parts[0];
+    areaText = parts.slice(1).join(' · ');
+  }
+
   return (
     <section id="beranda" className="pt-28 md:pt-36 pb-16 md:pb-24 bg-white">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-12 gap-10 lg:gap-14 items-center">
         <div className="lg:col-span-5">
-          <p className="anim-rise text-xs font-bold uppercase tracking-[0.18em] text-ink-500">{eyebrow}</p>
+          <p className="anim-rise text-xs font-bold uppercase tracking-[0.18em] text-ink-500">
+            <span>{mainEyebrow}</span>
+            {areaText && (
+              <>
+                <span className="hidden sm:inline"> · </span>
+                <span className="block sm:inline mt-0.5 sm:mt-0">{areaText}</span>
+              </>
+            )}
+          </p>
           <h1 style={{ animationDelay: '90ms' }} className="anim-rise mt-4 font-heading font-extrabold text-ink-900 tracking-tight leading-[1.1] text-4xl sm:text-5xl">
             Photobooth profesional untuk setiap acara Anda.
           </h1>

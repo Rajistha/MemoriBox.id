@@ -234,7 +234,7 @@ body {
 @keyframes sheet-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(30px); } }
 .anim-fade-in { animation: fade-in 0.18s ease-out both; }
 .anim-fade-out { animation: fade-out 0.18s ease-in both; }
-.anim-sheet-in { animation: sheet-in 0.2s ease-out both; }
+.anim-sheet-in { animation: sheet-in 0.2s ease-out; }
 .anim-sheet-out { animation: sheet-out 0.18s ease-in both; }
 
 /* Animasi masuk hero & elemen melayang (dimatikan bila pengguna memilih kurangi gerakan). */
