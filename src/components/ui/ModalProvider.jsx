@@ -5,10 +5,16 @@ import { FiAlertTriangle, FiCheckCircle, FiInfo, FiX, FiHelpCircle } from 'react
 
 const ModalCtx = createContext(null);
 
+const noop = () => Promise.resolve(undefined);
+const FALLBACK = { confirm: () => Promise.resolve(false), notify: noop, prompt: () => Promise.resolve(null), open: noop, close: noop, closeTop: noop };
+
 export const useModal = () => {
   const context = useContext(ModalCtx);
   if (!context) {
-    throw new Error('useModal must be used within a ModalProvider');
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      console.warn('[ModalProvider] useModal dipanggil di luar ModalProvider – kemungkinan HMR. Mengembalikan fallback no-op.');
+    }
+    return FALLBACK;
   }
   return context;
 };

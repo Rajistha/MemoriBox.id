@@ -17,8 +17,14 @@ const body = Inter({
   display: 'swap',
 });
 
+// OG image dan aset metadata harus memakai domain yang sedang aktif.
+// VERCEL_PROJECT_PRODUCTION_URL diisi otomatis oleh Vercel (tanpa protokol).
+const baseUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  : `https://${process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'memoribox.id'}`;
+
 export const metadata = {
-  metadataBase: new URL('https://memoribox.id'),
+  metadataBase: new URL(baseUrl),
   title: {
     default: 'MemoriBox.id – Photobooth & Smart Queue',
     template: '%s | MemoriBox.id',
