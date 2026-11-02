@@ -141,6 +141,107 @@ export function ModalProvider({ children }) {
 
 function ModalShell({ children, size = 'md', index = 0, closing = false, onDismiss, nonDismissible }) {
   const containerRef = useRef(null);
+  const sheetRef = useRef(null);
+
+  // --- Swipe-to-dismiss state (mobile bottom sheet) ---
+  const dragState = useRef({ startY: 0, currentY: 0, dragging: false, startedOnHandle: false });
+  const DISMISS_THRESHOLD = 80; // px to swipe before dismissing
+
+  const handleTouchStart = useCallback((e) => {
+    if (nonDismissible) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    // Determine if touch started on the drag handle (the bar at the top)
+    const handle = sheet.querySelector('[data-drag-handle]');
+    const startedOnHandle = handle && handle.contains(e.target);
+
+    // Only allow drag from handle, or from content area when scrolled to top
+    const contentEl = sheet.querySelector('[data-modal-content]');
+    const scrolledToTop = !contentEl || contentEl.scrollTop <= 0;
+
+    if (!startedOnHandle && !scrolledToTop) return;
+
+    dragState.current = {
+      startY: e.touches[0].clientY,
+      currentY: e.touches[0].clientY,
+      dragging: false,
+      startedOnHandle,
+    };
+  }, [nonDismissible]);
+
+  const handleTouchMove = useCallback((e) => {
+    const ds = dragState.current;
+    if (ds.startY === 0) return;
+
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - ds.startY;
+
+    // Only activate dragging for downward movement
+    if (deltaY < 0) {
+      // Trying to swipe up – reset and allow normal scroll
+      if (!ds.dragging) return;
+      // If already dragging, clamp at 0
+      ds.currentY = ds.startY;
+      if (sheetRef.current) sheetRef.current.style.transform = 'translateY(0)';
+      return;
+    }
+
+    // When drag started on content area (not handle), only activate if still scrolled to top
+    if (!ds.startedOnHandle) {
+      const contentEl = sheetRef.current?.querySelector('[data-modal-content]');
+      if (contentEl && contentEl.scrollTop > 0) {
+        ds.startY = 0; // cancel this drag
+        return;
+      }
+    }
+
+    ds.dragging = true;
+    ds.currentY = currentY;
+
+    // Prevent default to block underlying page scroll while dragging
+    e.preventDefault();
+
+    // Apply rubber-band damped translation
+    const rawDelta = currentY - ds.startY;
+    const dampedDelta = rawDelta * 0.7; // slight resistance
+    if (sheetRef.current) {
+      sheetRef.current.style.transform = `translateY(${dampedDelta}px)`;
+      sheetRef.current.style.transition = 'none';
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    const ds = dragState.current;
+    if (!ds.dragging) {
+      ds.startY = 0;
+      return;
+    }
+
+    const deltaY = ds.currentY - ds.startY;
+    const sheet = sheetRef.current;
+
+    if (deltaY > DISMISS_THRESHOLD && !nonDismissible) {
+      // Dismiss: slide fully off-screen then call onDismiss
+      if (sheet) {
+        sheet.style.transition = 'transform 0.2s ease-in';
+        sheet.style.transform = 'translateY(100%)';
+      }
+      // Wait for animation then close
+      setTimeout(() => {
+        if (onDismiss) onDismiss();
+      }, 180);
+    } else {
+      // Snap back
+      if (sheet) {
+        sheet.style.transition = 'transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)';
+        sheet.style.transform = 'translateY(0)';
+      }
+    }
+
+    // Reset state
+    dragState.current = { startY: 0, currentY: 0, dragging: false, startedOnHandle: false };
+  }, [nonDismissible, onDismiss]);
 
   // Focus trap
   useEffect(() => {
@@ -167,6 +268,7 @@ function ModalShell({ children, size = 'md', index = 0, closing = false, onDismi
 
   return (
     <div
+      ref={containerRef}
       className="fixed inset-0 flex items-end md:items-center justify-center p-0 md:p-4"
       style={{ zIndex: zIndexBackdrop }}
       role="dialog"
@@ -180,17 +282,20 @@ function ModalShell({ children, size = 'md', index = 0, closing = false, onDismi
 
       {/* Modal / Bottom Sheet Container */}
       <div
-        ref={containerRef}
+        ref={sheetRef}
         style={{ zIndex: zIndexContent }}
         className={`relative w-full ${sizeClasses} bg-white text-ink-900 shadow-float rounded-t-3xl md:rounded-3xl border border-line max-h-[90dvh] md:max-h-[90vh] flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,16px)] md:pb-0 ${closing ? 'anim-sheet-out' : 'anim-sheet-in'}`}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
-        {/* Mobile Drag Handle */}
-        <div className="md:hidden flex justify-center pt-3 pb-1 cursor-grab">
+        {/* Mobile Drag Handle — swipe down to close */}
+        <div data-drag-handle className="md:hidden flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing select-none touch-none">
           <div className="w-12 h-1.5 rounded-full bg-ink-300" />
         </div>
 
         {/* Content body */}
-        <div className="overflow-y-auto flex-1 p-5 md:p-6">{children}</div>
+        <div data-modal-content className="overflow-y-auto flex-1 p-5 md:p-6">{children}</div>
       </div>
     </div>
   );

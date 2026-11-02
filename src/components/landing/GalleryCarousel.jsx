@@ -92,16 +92,14 @@ export function GalleryCarousel({ gallery = [] }) {
 
         <GalleryViewer items={items} index={viewing} onChange={setViewing} onClose={() => setViewing(null)} />
 
-        {gallery.length > items.length && (
         <div className="mt-8 flex justify-center">
           <Link
             href="/galeri"
             className="inline-flex items-center h-12 px-8 rounded-full border border-ink-300 text-ink-900 font-bold text-sm hover:bg-yellow-500 hover:border-yellow-500 transition-colors"
           >
-            Muat lebih banyak
+            Lihat Semua Galeri
           </Link>
         </div>
-        )}
       </div>
     </section>
   );
