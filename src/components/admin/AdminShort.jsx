@@ -18,6 +18,7 @@ import {
 import toast from 'react-hot-toast';
 import ShortlinkModal from '@/components/admin/ShortlinkModal';
 import { useModal } from '@/components/ui/ModalProvider';
+import ErrorState from '@/components/ui/ErrorState';
 import { supabase } from '@/lib/supabase';
 import { formatNumberWithDots } from '@/lib/utils';
 
@@ -25,6 +26,7 @@ import { formatNumberWithDots } from '@/lib/utils';
 export default function AdminShort() {
   const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -32,53 +34,24 @@ export default function AdminShort() {
 
   const fetchShortlinks = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
-      if (supabase && supabase.from) {
-        const { data, error } = await supabase
-          .from('short_links')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (!error && data && data.length > 0) {
-          setLinks(data);
-        } else {
-          setLinks([]);
-        }
-      } else {
-        setLinks([]);
-      }
+      const { data, error } = await supabase.from('short_links').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      setLinks(data || []);
     } catch (err) {
-      console.warn('Shortlink DB fetch error, using local fallback:', err);
-      setLinks([]);
+      console.warn('Shortlink load error:', err);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    let ignore = false;
-    async function load() {
-      try {
-        if (supabase && supabase.from) {
-          const { data, error } = await supabase
-            .from('short_links')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-          if (!ignore && !error && data && data.length > 0) {
-            setLinks(data);
-          }
-        }
-      } catch (err) {
-        console.warn('Initial load shortlink error:', err);
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      ignore = true;
+    const init = async () => {
+      await fetchShortlinks();
     };
+    init();
   }, []);
 
   // Satu modal: slug dan tujuan diisi bersamaan, disimpan langsung ke database.
@@ -153,6 +126,10 @@ export default function AdminShort() {
   );
 
   const totalClicks = links.reduce((sum, l) => sum + (Number(l.clicks) || 0), 0);
+
+  if (loadError) {
+    return <ErrorState title="Gagal memuat shortlink" onRetry={fetchShortlinks} />;
+  }
 
   return (
     <div className="space-y-6 max-w-6xl">

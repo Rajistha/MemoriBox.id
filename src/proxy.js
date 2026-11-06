@@ -83,6 +83,14 @@ export async function proxy(request) {
     };
     const loginPath = isLocal ? '/admin/login' : '/login';
 
+    // Produksi tanpa konfigurasi Supabase: tutup panel, jangan biarkan terbuka tanpa login.
+    if (!session.configured && process.env.NODE_ENV === 'production') {
+      return new NextResponse('Konfigurasi server belum lengkap.', {
+        status: 503,
+        headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+      });
+    }
+
     if (session.configured) {
       // Wajib login: tanpa sesi valid, halaman selain /login dialihkan ke login dengan tujuan asal (?next=).
       if (!session.user && path !== '/login') {
@@ -98,8 +106,7 @@ export async function proxy(request) {
   return response;
 }
 
-// Next.js 16 convention + fallback alias
-export const middleware = proxy;
+// Next.js 16: berkas proxy.js (pengganti middleware.js) memakai ekspor `proxy`.
 export default proxy;
 
 export const config = {

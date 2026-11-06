@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
  * Bentuk hasil: { event: {id,name,date}, board: [...], completed_count, avg_service_seconds, ticket }.
  */
 export async function fetchQueueState(slug, ticketId = null) {
-  const token = slug?.split('-').pop() || slug;
+  const token = slug;
   try {
     const { data, error } = await supabase.rpc('get_queue_state', {
       p_token: token,

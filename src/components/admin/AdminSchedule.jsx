@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiCalendar, FiTrash2, FiPlus, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import toast from 'react-hot-toast';
+import ErrorState from '@/components/ui/ErrorState';
 import { supabase } from '@/lib/supabase';
 import { useModal } from '@/components/ui/ModalProvider';
 import { formatDate, toYmd, todayYmd } from '@/lib/utils';
@@ -13,6 +14,7 @@ export function AdminSchedule() {
   const { open, confirm, notify } = useModal();
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [activeTab, setActiveTab] = useState('upcoming'); // 'upcoming' | 'past'
 
   // Month state for mini calendar
@@ -28,68 +30,30 @@ export function AdminSchedule() {
   ];
 
   const fetchSchedules = async () => {
+    setLoadError(false);
     try {
-      const { data, error } = await supabase
-        .from('booked_dates')
-        .select('*')
-        .order('date', { ascending: true });
-
-      if (!error && data && data.length > 0) {
-        setSchedules(
-          data.map((item) => ({
-            id: item.id,
-            date: item.date,
-            eventName: item.event_name || 'Event Booked',
-          }))
-        );
-      } else {
-        setSchedules([]);
-      }
+      const { data, error } = await supabase.from('booked_dates').select('*').order('date', { ascending: true });
+      if (error) throw error;
+      setSchedules(
+        (data || []).map((item) => ({
+          id: item.id,
+          date: item.date,
+          eventName: item.event_name || 'Event Booked',
+        }))
+      );
     } catch (err) {
       console.error('Gagal memuat jadwal:', err);
-      toast.error('Gagal memuat jadwal dari database');
-      setSchedules([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    let ignore = false;
-    async function load() {
-      try {
-        const { data, error } = await supabase
-          .from('booked_dates')
-          .select('*')
-          .order('date', { ascending: true });
-
-        if (!ignore) {
-          if (!error && data && data.length > 0) {
-            setSchedules(
-              data.map((item) => ({
-                id: item.id,
-                date: item.date,
-                eventName: item.event_name || 'Event Booked',
-              }))
-            );
-          } else {
-            setSchedules([]);
-          }
-        }
-      } catch (err) {
-        console.error('Gagal memuat jadwal:', err);
-        if (!ignore) {
-          toast.error('Gagal memuat jadwal dari database');
-          setSchedules([]);
-        }
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      ignore = true;
+    const init = async () => {
+      await fetchSchedules();
     };
+    init();
   }, []);
 
   const handlePrevMonth = () => setViewDate(new Date(year, month - 1, 1));
@@ -199,6 +163,10 @@ export function AdminSchedule() {
   const pastList = schedules.filter((s) => s.date < todayStr).sort((a, b) => b.date.localeCompare(a.date));
 
   const displayList = activeTab === 'upcoming' ? upcomingList : pastList;
+
+  if (loadError) {
+    return <ErrorState title="Gagal memuat jadwal" onRetry={() => { setLoading(true); fetchSchedules(); }} />;
+  }
 
   if (loading) {
     return (

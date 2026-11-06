@@ -19,6 +19,7 @@ import { usePolling } from '@/lib/usePolling';
 import { playChime, unlockAudio } from '@/lib/chime';
 import { isActive, statusMeta } from '@/lib/queueStatus';
 import { formatRp } from '@/lib/appUrls';
+import { pricingOf } from '@/lib/photoSession';
 import Modal from '@/components/ui/Modal';
 
 const TABS = [
@@ -133,9 +134,18 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
     } catch (err) {
       console.error(err);
       toast.error(errorMessage || 'Gagal memproses aksi');
+      // Data di layar mungkin sudah basi (mis. petugas lain sudah memproses nomor yang sama).
+      refresh();
     } finally {
       setBusy(false);
     }
+  };
+
+  // RPC aksi mengembalikan null/false bila status tiket sudah berubah di server: anggap gagal, jangan pura-pura sukses.
+  const rpcStrict = async (name, args) => {
+    const data = await rpc(name, args);
+    if (!data) throw new Error('Status antrean sudah berubah');
+    return data;
   };
 
   const rpc = async (name, args) => {
@@ -174,7 +184,7 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
 
   const complete = (item) =>
     run(async () => {
-      await rpc('crew_queue_complete', { p_id: item.id, p_auto_session: autoSession });
+      await rpcStrict('crew_queue_complete', { p_id: item.id, p_auto_session: autoSession });
       await refresh();
       if (autoSession) onSessionsRef.current?.();
       toast.success(autoSession ? `${item.queue_number} selesai, sesi foto dicatat` : `${item.queue_number} selesai`);
@@ -182,7 +192,7 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
 
   const startServing = (item) =>
     run(async () => {
-      await rpc('crew_queue_start', { p_id: item.id });
+      await rpcStrict('crew_queue_start', { p_id: item.id });
       setQueues((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'serving' } : q)));
       toast.success(`${item.queue_number} mulai difoto`);
     }, 'Gagal memulai sesi foto');
@@ -190,7 +200,7 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
   const recall = (item) =>
     run(async () => {
       unlockAudio();
-      await rpc('crew_queue_recall', { p_id: item.id });
+      await rpcStrict('crew_queue_recall', { p_id: item.id });
       playChime(0.8);
       await refresh();
       toast.success(`Memanggil ulang ${item.queue_number}`);
@@ -198,14 +208,14 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
 
   const skip = (item) =>
     run(async () => {
-      await rpc('crew_queue_skip', { p_id: item.id });
+      await rpcStrict('crew_queue_skip', { p_id: item.id });
       await refresh();
       toast.success(`${item.queue_number} dilewati`);
     }, 'Gagal melewati antrean');
 
   const requeue = (item) =>
     run(async () => {
-      await rpc('crew_queue_requeue', { p_id: item.id });
+      await rpcStrict('crew_queue_requeue', { p_id: item.id });
       await refresh();
       toast.success(`${item.queue_number} kembali ke antrean`);
     }, 'Gagal mengembalikan antrean');
@@ -262,14 +272,13 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
     }
   };
 
-  const percentMode = event?.pricing_mode === 'percent';
+  // Tarif memakai satu sumber (photoSession.js) yang sama dengan perhitungan di panel admin dan database.
+  const pricing = pricingOf(event);
+  const percentMode = pricing.mode === 'percent';
   const priceOf = (item) => {
-    const voucher = event?.voucher_price ?? 30000;
-    const noVoucher = event?.no_voucher_price ?? 35000;
-    const printPrice = event?.print_price ?? 10000;
-    const base = percentMode ? (event?.session_price ?? 45000) : item.no_voucher ? noVoucher : voucher;
+    const base = percentMode ? pricing.sessionPrice : item.no_voucher ? pricing.noVoucherPrice : pricing.voucherPrice;
     const prints = item.prints || 0;
-    return { base, printPrice, prints, total: base + prints * printPrice };
+    return { base, printPrice: pricing.printPrice, prints, total: base + prints * pricing.printPrice };
   };
 
   if (invalid) {

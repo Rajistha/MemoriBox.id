@@ -27,6 +27,7 @@ import NewEventModal from '@/components/admin/NewEventModal';
 import PricingConfigModal from '@/components/admin/PricingConfigModal';
 import QueueConsole from '@/components/queue/QueueConsole';
 import { useModal } from '@/components/ui/ModalProvider';
+import { usePolling } from '@/lib/usePolling';
 import { openExternal } from '@/lib/openExternal';
 import { supabase } from '@/lib/supabase';
 import { queueGuestUrl, queueDisplayUrl, queueCrewUrl, queueQrUrl, liveUrl, daysUntil, todayString, newToken, MONTHS } from '@/lib/appUrls';
@@ -35,7 +36,7 @@ import { eventTotal, voucherCount, eventSharing, eventStudioNet, isPercentMode }
 
 // Kolom ringan untuk daftar acara (tanpa JSON sesi yang besar); baris lengkap dimuat saat acara dibuka.
 const LIST_COLUMNS =
-  'id,name,date,venue,queue_token,queue_crew_token,share_token,crew_token,pricing_mode,voucher_price,no_voucher_price,session_price,print_price,share_per_voucher,share_percent';
+  'id,name,date,venue,queue_token,queue_slug,queue_crew_token,share_token,crew_token,pricing_mode,voucher_price,no_voucher_price,session_price,print_price,share_per_voucher,share_percent';
 
 const TABS = [
   { id: 'queue', label: 'Kontrol Antrean' },
@@ -90,6 +91,9 @@ export default function AdminQueue() {
     setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, ...fresh, sessions: undefined } : e)));
     return fresh;
   }, []);
+
+  // Kartu keuangan ikut berubah saat kru menyelesaikan tamu dari terminal mereka (tidak hanya dari panel ini).
+  usePolling(() => selectedEvent && reloadSelected(selectedEvent.id), 8000, !!selectedEvent);
 
   const handleEnterEvent = (ev) => {
     setSelectedEvent(ev);

@@ -53,7 +53,8 @@ const fadeUp = (delay = 0) => ({
 export default function LiveSessionPage({ params }) {
   const unwrappedParams = use(params);
   const slug = unwrappedParams.slug;
-  const token = slug?.split('-').pop();
+  // Seluruh slug dikirim ke server: slug cantik atau tautan lama 'nama-token'.
+  const token = slug;
 
   const [event, setEvent] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'notfound' | 'error'

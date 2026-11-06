@@ -38,12 +38,15 @@ import {
   Cell,
 } from 'recharts';
 import { formatRupiah } from '@/lib/utils';
-import { eventTotal, eventSharing } from '@/lib/photoSession';
+import { eventTotal, eventSharing, SHARING_SOURCE } from '@/lib/photoSession';
+import ErrorState from '@/components/ui/ErrorState';
+import { unwrap } from '@/lib/db';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { SITE_PROFILE_KEY, normalizeProfile } from '@/lib/siteProfile';
 
 export default function AdminDashboard({ onSelectTab }) {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [missingContacts, setMissingContacts] = useState([]);
 
   // Pengingat bila kontak di menu Profil belum lengkap (tombol WhatsApp dan bagian Kontak bergantung padanya).
@@ -93,27 +96,21 @@ export default function AdminDashboard({ onSelectTab }) {
 
   const fetchDashboardData = async (isRefresh = false) => {
     if (isRefresh) setLoading(true);
+    setLoadError(false);
     try {
-      let events = [];
-      let transactions = [];
-      let settingsData = [];
-      let schedules = [];
+      // Acara dimuat ringkas (sesi hanya voucher/print): dashboard hanya butuh total, bukan riwayat sesi.
+      const [eRes, tRes, sRes, schRes] = await Promise.all([
+        supabase.rpc('admin_events_compact'),
+        supabase.from('transactions').select('*'),
+        supabase.from('settings').select('*'),
+        supabase.from('booked_dates').select('*').order('date', { ascending: true }),
+      ]);
 
-      try {
-        const [eRes, tRes, sRes, schRes] = await Promise.all([
-          supabase.from('financial_events').select('*').order('date', { ascending: true }),
-          supabase.from('transactions').select('*'),
-          supabase.from('settings').select('*'),
-          supabase.from('booked_dates').select('*').order('date', { ascending: true }),
-        ]);
-
-        if (eRes.data && eRes.data.length > 0) events = eRes.data;
-        if (tRes.data) transactions = tRes.data;
-        if (sRes.data) settingsData = sRes.data;
-        if (schRes.data) schedules = schRes.data;
-      } catch (err) {
-        console.warn('Dashboard DB read error, using local fallback:', err);
-      }
+      const events = [...(unwrap(eRes) || [])].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      // Baris sharing otomatis dibuat database; sharing sudah dihitung dari sesi (calcEventFin), jadi jangan dihitung dua kali.
+      const transactions = (unwrap(tRes) || []).filter((t) => t.auto_source !== SHARING_SOURCE);
+      const settingsData = unwrap(sRes) || [];
+      const schedules = unwrap(schRes) || [];
 
       const currentMonthStr = format(new Date(), 'yyyy-MM');
       let targetAllTime = 0;
@@ -288,13 +285,12 @@ export default function AdminDashboard({ onSelectTab }) {
         const top4 = pieArr.slice(0, 4);
         const othersValue = pieArr.slice(4).reduce((sum, curr) => sum + curr.value, 0);
         pieArr = [...top4, { name: 'Lainnya', value: othersValue }];
-      } else if (pieArr.length === 0) {
-        pieArr = [{ name: 'Kertas & Tinta', value: 1200000 }, { name: 'Transport & Crew', value: 800000 }];
       }
+      // Tanpa pengeluaran, grafik dibiarkan kosong (tidak ada data contoh).
       setPieData(pieArr);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      toast.error('Gagal memuat data dashboard.');
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -315,7 +311,14 @@ export default function AdminDashboard({ onSelectTab }) {
     return formatRupiah(num);
   };
 
-  const PIE_COLORS = ['#FFC400', '#10B981', '#F59E0B', '#9CA3AF', '#D97706'];
+  // Warna grafik memakai token desain (globals.css), bukan hex baru.
+  const PIE_COLORS = [
+    'var(--color-yellow-500)',
+    'var(--color-success)',
+    'var(--color-warning)',
+    'var(--color-ink-300)',
+    'var(--color-yellow-700)',
+  ];
 
   const allTimeTarget = targets.allTime || 1;
   const allTimeTercapaiRaw = Math.max(0, ((stats.netProfit || 0) / allTimeTarget) * 100);
@@ -324,6 +327,10 @@ export default function AdminDashboard({ onSelectTab }) {
   const monthlyTarget = targets.monthly || 1;
   const monthlyTercapaiRaw = Math.max(0, ((insightStats.thisMonthNetProfit || 0) / monthlyTarget) * 100);
   const monthlyTercapaiWidth = Math.min(monthlyTercapaiRaw, 100);
+
+  if (loadError) {
+    return <ErrorState title="Gagal memuat dashboard" onRetry={() => fetchDashboardData(true)} className="max-w-6xl" />;
+  }
 
   if (loading) {
     return (
@@ -534,10 +541,10 @@ export default function AdminDashboard({ onSelectTab }) {
               ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" vertical={false} />
                   <XAxis
                     dataKey="name"
-                    stroke="#94A3B8"
+                    stroke="var(--color-ink-500)"
                     fontSize={11}
                     fontWeight={500}
                     tickLine={false}
@@ -545,7 +552,7 @@ export default function AdminDashboard({ onSelectTab }) {
                     dy={10}
                   />
                   <YAxis
-                    stroke="#94A3B8"
+                    stroke="var(--color-ink-500)"
                     fontSize={11}
                     fontWeight={500}
                     tickLine={false}
@@ -554,32 +561,32 @@ export default function AdminDashboard({ onSelectTab }) {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#FFFFFF',
-                      border: '1px solid #E2E8F0',
+                      backgroundColor: 'var(--color-surface)',
+                      border: '1px solid var(--color-line)',
                       borderRadius: '12px',
-                      color: '#0F172A',
+                      color: 'var(--color-ink-900)',
                       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                       fontWeight: '600',
                     }}
                     itemStyle={{ fontSize: '12px' }}
-                    labelStyle={{ color: '#0F172A', fontSize: '11px', marginBottom: '4px', fontWeight: 'bold' }}
+                    labelStyle={{ color: 'var(--color-ink-900)', fontSize: '11px', marginBottom: '4px', fontWeight: 'bold' }}
                     formatter={(value) => formatIDR(value)}
                   />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '15px', fontWeight: '600' }} />
                   <Line
                     type="monotone"
                     dataKey="Pemasukan"
-                    stroke="#10B981"
+                    stroke="var(--color-success)"
                     strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#10B981', stroke: '#FFFFFF', strokeWidth: 2 }}
+                    dot={{ r: 4, fill: 'var(--color-success)', stroke: 'var(--color-surface)', strokeWidth: 2 }}
                     activeDot={{ r: 6 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="Pengeluaran"
-                    stroke="#F59E0B"
+                    stroke="var(--color-warning)"
                     strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#F59E0B', stroke: '#FFFFFF', strokeWidth: 2 }}
+                    dot={{ r: 4, fill: 'var(--color-warning)', stroke: 'var(--color-surface)', strokeWidth: 2 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -617,7 +624,7 @@ export default function AdminDashboard({ onSelectTab }) {
                     cy="50%"
                     innerRadius={55}
                     outerRadius={80}
-                    stroke="#FFFFFF"
+                    stroke="var(--color-surface)"
                     strokeWidth={2}
                     paddingAngle={3}
                     dataKey="value"
@@ -625,18 +632,18 @@ export default function AdminDashboard({ onSelectTab }) {
                     {pieData.map((entry, index) => (
                       <Cell
                         key={`cell-${index}`}
-                        fill={entry.name === 'Belum Ada' ? '#F1F5F9' : PIE_COLORS[index % PIE_COLORS.length]}
+                        fill={entry.name === 'Belum Ada' ? 'var(--color-line)' : PIE_COLORS[index % PIE_COLORS.length]}
                       />
                     ))}
                   </Pie>
                   <Tooltip
                     formatter={(value) => formatIDR(value)}
                     contentStyle={{
-                      backgroundColor: '#FFFFFF',
-                      border: '1px solid #E2E8F0',
+                      backgroundColor: 'var(--color-surface)',
+                      border: '1px solid var(--color-line)',
                       borderRadius: '12px',
                       fontSize: '12px',
-                      color: '#0F172A',
+                      color: 'var(--color-ink-900)',
                       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                       fontWeight: '600',
                     }}
@@ -651,7 +658,7 @@ export default function AdminDashboard({ onSelectTab }) {
                       className="w-2.5 h-2.5 rounded-full"
                       style={{
                         backgroundColor:
-                          entry.name === 'Belum Ada' ? '#CBD5E1' : PIE_COLORS[idx % PIE_COLORS.length],
+                          entry.name === 'Belum Ada' ? 'var(--color-ink-300)' : PIE_COLORS[idx % PIE_COLORS.length],
                       }}
                     />
                     <span>{entry.name}</span>

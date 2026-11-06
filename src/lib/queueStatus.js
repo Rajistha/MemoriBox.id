@@ -18,9 +18,11 @@ export const statusMeta = (status) => STATUS_META[status] || { label: status, to
 // Estimasi tunggu: 5 menit per sesi foto sesuai durasi nyata photobooth.
 export const DEFAULT_SERVICE_SECONDS = 300;
 
-export const estimateMinutes = (peopleAhead) => {
+// avgSeconds berasal dari server (rata-rata durasi 10 tamu terakhir); tanpa itu dipakai 5 menit per tamu.
+export const estimateMinutes = (peopleAhead, avgSeconds) => {
   const count = Math.max(0, Number(peopleAhead) || 0);
-  return count * 5;
+  const perPerson = Number(avgSeconds) > 0 ? Number(avgSeconds) / 60 : DEFAULT_SERVICE_SECONDS / 60;
+  return Math.ceil(count * perPerson);
 };
 
 export const formatEstimate = (minutes) => {

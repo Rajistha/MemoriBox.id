@@ -14,7 +14,7 @@ import {
 } from 'react-icons/fi';
 import { supabase } from '@/lib/supabase';
 import { usePolling } from '@/lib/usePolling';
-import { playChime, speak, spokenNumber, unlockAudio, vibrate } from '@/lib/chime';
+import { playChime, unlockAudio, vibrate } from '@/lib/chime';
 import { ACTIVE_STATUSES, estimateMinutes, formatEstimate, statusMeta } from '@/lib/queueStatus';
 
 const ticketStorageKey = (token) => `memoribox_ticket_${token}`;
@@ -91,7 +91,8 @@ const Stat = ({ label, value, sub, highlight }) => {
 export default function GuestQueuePage({ params }) {
   const unwrappedParams = use(params);
   const slug = unwrappedParams.slug;
-  const token = slug?.split('-').pop() || slug;
+  // Seluruh slug dikirim ke server: bisa slug cantik atau tautan lama 'nama-token'.
+  const token = slug;
 
   const [ticketId, setTicketId] = useState(() => readTicketId(token));
   const [state, setState] = useState(() => readCachedState(token));
@@ -101,6 +102,7 @@ export default function GuestQueuePage({ params }) {
   const [countdown, setCountdown] = useState(30);
 
   const refreshRef = useRef();
+  const hasStateRef = useRef(!!state);
   const inFlightRef = useRef(false);
   const releaseTicketRef = useRef();
   const isReleasedRef = useRef(false);
@@ -129,11 +131,12 @@ export default function GuestQueuePage({ params }) {
 
       // Tanpa data dari server: jangan mengarang antrean. Pertahankan data terakhir; bila belum ada, tandai tidak valid.
       if (!data) {
-        setInvalid((prev) => prev || !state);
+        setInvalid((prev) => prev || !hasStateRef.current);
         return;
       }
       setInvalid(false);
 
+      hasStateRef.current = true;
       setState(data);
       writeCachedState(token, data);
 
@@ -149,15 +152,19 @@ export default function GuestQueuePage({ params }) {
     } finally {
       inFlightRef.current = false;
     }
-  }, [token, ticketId, state]);
+  }, [token, ticketId]);
 
   useEffect(() => {
     refreshRef.current = refresh;
   }, [refresh]);
 
+  // Muat awal hanya saat token berubah. (Bergantung pada `refresh` akan memicu permintaan beruntun tanpa jeda.)
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    const init = async () => {
+      await refreshRef.current?.();
+    };
+    init();
+  }, [token]);
 
   const ticket = state?.ticket || null;
   const board = useMemo(() => state?.board || [], [state]);
@@ -200,7 +207,6 @@ export default function GuestQueuePage({ params }) {
     const ring = () => {
       playChime(1);
       vibrate();
-      speak(`Nomor antrian ${spokenNumber(ticket?.queue_number)}, silakan menuju photobooth.`);
     };
     ring();
     const id = setInterval(ring, 4000);
@@ -358,9 +364,6 @@ export default function GuestQueuePage({ params }) {
     unlockAudio();
     playChime(1);
     vibrate();
-    setTimeout(() => {
-      speak('Suara notifikasi aktif.');
-    }, 1200);
   };
 
   if (invalid) {
@@ -446,7 +449,7 @@ export default function GuestQueuePage({ params }) {
               <Stat label="Menunggu" value={`${waiting.length}`} sub="antrean" />
               <Stat
                 label="Estimasi"
-                value={aheadForNew === 0 ? 'Langsung' : formatEstimate(estimateMinutes(aheadForNew)).replace('± ', '')}
+                value={aheadForNew === 0 ? 'Langsung' : formatEstimate(estimateMinutes(aheadForNew, state?.avg_service_seconds)).replace('± ', '')}
                 highlight
               />
             </dl>
@@ -534,7 +537,7 @@ export default function GuestQueuePage({ params }) {
                     <Stat label="Di depan Anda" value={`${ahead}`} sub="antrean" />
                     <Stat
                       label="Estimasi"
-                      value={aheadForMe === 0 ? 'Langsung' : formatEstimate(estimateMinutes(aheadForMe)).replace('± ', '')}
+                      value={aheadForMe === 0 ? 'Langsung' : formatEstimate(estimateMinutes(aheadForMe, state?.avg_service_seconds)).replace('± ', '')}
                       highlight
                     />
                   </>

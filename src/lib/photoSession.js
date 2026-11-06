@@ -1,4 +1,6 @@
 // Harga & perhitungan pencatatan sesi foto (dipakai halaman Sesi Foto, Antrean, dan Keuangan Event Memoribox).
+// Harga bawaan. Nilai yang sama dipakai sebagai default di database (recalc_event_finance & tabel financial_events);
+// ubah keduanya bersamaan bila tarif standar berubah.
 export const VOUCHER_PRICE = 30000;
 export const NO_VOUCHER_PRICE = 35000;
 export const PRINT_PRICE = 10000;

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import ErrorState from '@/components/ui/ErrorState';
 import { supabase } from '@/lib/supabase';
 import toast from 'react-hot-toast';
 import { FiTrash2, FiPlus, FiX, FiStar, FiEdit2 } from 'react-icons/fi';
@@ -11,6 +12,7 @@ const PREDEFINED_TYPES = ['Wedding', 'Birthday', 'Corporate Event', 'Graduation'
 export default function AdminReviews() {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReview, setEditingReview] = useState(null);
   const [reviewToDelete, setReviewToDelete] = useState(null);
@@ -25,6 +27,7 @@ export default function AdminReviews() {
 
   const fetchReviews = async (isRefresh = false) => {
     if (isRefresh) setLoading(true);
+    setLoadError(false);
     try {
       const { data, error } = await supabase
         .from('reviews')
@@ -34,9 +37,8 @@ export default function AdminReviews() {
       if (error) throw error;
       setReviews(data || []);
     } catch (error) {
-      console.warn('Reviews DB fallback:', error);
-      toast.error('Gagal memuat ulasan dari database');
-      setReviews([]);
+      console.warn('Reviews load error:', error);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -132,6 +134,10 @@ export default function AdminReviews() {
       toast.error('Gagal menghapus ulasan');
     }
   };
+
+  if (loadError) {
+    return <ErrorState title="Gagal memuat ulasan" onRetry={() => fetchReviews(true)} />;
+  }
 
   return (
     <div className="space-y-6 max-w-6xl">

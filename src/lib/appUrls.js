@@ -42,6 +42,10 @@ export const getEventSlug = (item, tokenKey) => {
   return token ? `${name}-${token}` : name;
 };
 
+// Slug publik antrean (tamu/TV/QR): pakai queue_slug yang cantik bila ada, jika tidak jatuh ke 'nama-token'.
+const queuePublicSlug = (item) =>
+  typeof item === 'string' ? item.trim() : item?.queue_slug || getEventSlug(item, 'queue_token');
+
 export const queueBaseUrl = () => {
   if (typeof window === 'undefined') return siteUrl('queue');
   if (isLocalHost()) {
@@ -51,7 +55,7 @@ export const queueBaseUrl = () => {
 };
 
 export const queueGuestUrl = (eventOrSlug) => {
-  const slug = getEventSlug(eventOrSlug, 'queue_token');
+  const slug = queuePublicSlug(eventOrSlug);
   if (!slug) return '';
   if (typeof window !== 'undefined' && isLocalHost()) {
     return `/queue/${slug}`;
@@ -60,7 +64,7 @@ export const queueGuestUrl = (eventOrSlug) => {
 };
 
 export const queueDisplayUrl = (eventOrSlug) => {
-  const slug = getEventSlug(eventOrSlug, 'queue_token');
+  const slug = queuePublicSlug(eventOrSlug);
   if (!slug) return '';
   if (typeof window !== 'undefined' && isLocalHost()) {
     return `/queue/${slug}/display`;
@@ -69,7 +73,7 @@ export const queueDisplayUrl = (eventOrSlug) => {
 };
 
 export const queueQrUrl = (eventOrSlug) => {
-  const slug = getEventSlug(eventOrSlug, 'queue_token');
+  const slug = queuePublicSlug(eventOrSlug);
   if (!slug) return '';
   if (typeof window !== 'undefined' && isLocalHost()) {
     return `/queue/${slug}/qr`;
@@ -95,7 +99,8 @@ export const queueCrewUrl = (eventOrSlug) => {
 };
 
 export const liveUrl = (eventOrSlug) => {
-  const slug = getEventSlug(eventOrSlug, 'share_token');
+  // Halaman pelanggan memakai slug cantik yang sama dengan antrean; link kru sesi tetap memakai token.
+  const slug = typeof eventOrSlug === 'string' ? eventOrSlug.trim() : eventOrSlug?.queue_slug || getEventSlug(eventOrSlug, 'share_token');
   if (!slug) return '';
   if (typeof window !== 'undefined' && isLocalHost()) {
     return `/live/${slug}`;

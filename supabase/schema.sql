@@ -59,6 +59,9 @@ create index if not exists idx_financial_events_queue_token on public.financial_
 create index if not exists idx_financial_events_queue_crew_token on public.financial_events(queue_crew_token);
 -- Antrean dibuka/ditutup (tamu tidak bisa mengambil nomor saat ditutup).
 alter table public.financial_events add column if not exists queue_open boolean not null default true;
+-- Slug cantik untuk tautan publik antrean (tamu/TV/QR), mis. 'wedding-rajistha'. Tanpa token di URL.
+alter table public.financial_events add column if not exists queue_slug text;
+create unique index if not exists idx_financial_events_queue_slug on public.financial_events(queue_slug) where queue_slug is not null;
 
 -- 1.2 Transaksi Keuangan (Pengeluaran Event & Biaya Operasional)
 create table if not exists public.transactions (
@@ -281,8 +284,12 @@ stable
 security definer
 set search_path = public
 as $$
+  -- Menerima slug cantik ('wedding-rajistha'), atau tautan lama 'nama-<token>' / token murni (>= 8 karakter).
   select id from public.financial_events
-  where p_token is not null and length(p_token) >= 8 and queue_token = p_token
+  where p_token is not null and (
+    queue_slug = p_token
+    or (length(substring(p_token from '[^-]+$')) >= 8 and queue_token = substring(p_token from '[^-]+$'))
+  )
   limit 1;
 $$;
 
@@ -321,7 +328,7 @@ declare
   v_board jsonb;
   v_ticket jsonb;
   v_done int;
-  v_avg numeric := 300;
+  v_avg numeric;
 begin
   select jsonb_build_object('id', e.id, 'name', e.name, 'date', e.date, 'queue_open', coalesce(e.queue_open, true))
   into v_event from public.financial_events e where e.id = p_event_id;
@@ -344,6 +351,19 @@ begin
 
   select count(*) into v_done from public.event_queues
   where event_id = p_event_id and status = 'completed';
+
+  -- Rata-rata durasi layanan 10 tamu terakhir (1-30 menit); minimal 2 data, jika belum ada dipakai 5 menit.
+  select least(greatest(avg(extract(epoch from (x.completed_at - x.called_at))), 60), 1800)
+  into v_avg
+  from (
+    select completed_at, called_at from public.event_queues
+    where event_id = p_event_id and status = 'completed'
+      and completed_at is not null and called_at is not null and completed_at > called_at
+    order by completed_at desc
+    limit 10
+  ) x
+  having count(*) >= 2;
+  v_avg := coalesce(v_avg, 300);
 
   if p_ticket_id is not null then
     select jsonb_build_object(
@@ -572,6 +592,7 @@ begin
         update public.financial_events
         set sessions = sessions || jsonb_build_array(jsonb_build_object(
           'id', v_session_id,
+          'queue_number', v_cur.queue_number,
           'no_voucher', coalesce(v_cur.no_voucher, false),
           'prints', greatest(0, least(coalesce(v_cur.prints, 0), 50)),
           'created_at', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
@@ -612,16 +633,18 @@ begin
 
   update public.event_queues
   set status = 'completed', completed_at = now()
-  where id = p_id and event_id = v_event_id
+  where id = p_id and event_id = v_event_id and status in ('called','heading','serving')
   returning * into v_row;
 
-  if not found then raise exception 'Antrian tidak ditemukan'; end if;
+  -- Sudah diselesaikan/dilewati petugas lain: jangan catat sesi kedua.
+  if not found then return null; end if;
 
   if p_auto_session then
     v_session_id := substr(replace(gen_random_uuid()::text, '-', ''), 1, 16);
     update public.financial_events
     set sessions = sessions || jsonb_build_array(jsonb_build_object(
       'id', v_session_id,
+      'queue_number', v_row.queue_number,
       'no_voucher', coalesce(v_row.no_voucher, false),
       'prints', greatest(0, least(coalesce(v_row.prints, 0), 50)),
       'created_at', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
@@ -649,7 +672,7 @@ begin
 
   update public.event_queues
   set status = 'serving'
-  where id = p_id and event_id = v_event_id;
+  where id = p_id and event_id = v_event_id and status in ('called','heading');
 
   return found;
 end $$;
@@ -671,9 +694,10 @@ begin
 
   update public.event_queues
   set status = 'called', called_at = now(), called_count = coalesce(called_count, 0) + 1
-  where id = p_id and event_id = v_event_id
+  where id = p_id and event_id = v_event_id and status in ('called','heading')
   returning * into v_row;
 
+  if not found then return null; end if;
   return to_jsonb(v_row);
 end $$;
 
@@ -693,7 +717,7 @@ begin
 
   update public.event_queues
   set status = 'skipped'
-  where id = p_id and event_id = v_event_id;
+  where id = p_id and event_id = v_event_id and status in ('waiting','called','heading','serving');
 
   return found;
 end $$;
@@ -714,7 +738,7 @@ begin
 
   update public.event_queues
   set status = 'waiting'
-  where id = p_id and event_id = v_event_id;
+  where id = p_id and event_id = v_event_id and status in ('skipped','cancelled');
 
   return found;
 end $$;
@@ -1146,7 +1170,11 @@ as $$
       '[]'::jsonb)
   )
   from public.financial_events e
-  where p_token is not null and length(p_token) >= 8 and e.share_token = p_token
+  -- Slug cantik (sama dengan slug antrean), atau tautan lama 'nama-<token>' / token murni (>= 8 karakter).
+  where p_token is not null and (
+    e.queue_slug = p_token
+    or (length(substring(p_token from '[^-]+$')) >= 8 and e.share_token = substring(p_token from '[^-]+$'))
+  )
   limit 1;
 $$;
 
@@ -1321,6 +1349,27 @@ alter table public.booked_dates
   add column if not exists event_id bigint references public.financial_events(id) on delete cascade;
 create unique index if not exists idx_booked_dates_event on public.booked_dates(event_id) where event_id is not null;
 
+-- Slug unik dari nama acara: huruf kecil, spasi/simbol jadi '-', ditambah -2, -3 bila bentrok.
+create or replace function public.make_queue_slug(p_name text, p_id bigint default null)
+returns text
+language plpgsql
+as $$
+declare
+  v_base text;
+  v_slug text;
+  v_n int := 1;
+begin
+  v_base := trim(both '-' from regexp_replace(lower(coalesce(p_name, '')), '[^a-z0-9]+', '-', 'g'));
+  v_base := trim(both '-' from left(v_base, 40));
+  if v_base = '' then v_base := 'acara'; end if;
+  v_slug := v_base;
+  while exists (select 1 from public.financial_events where queue_slug = v_slug and id is distinct from p_id) loop
+    v_n := v_n + 1;
+    v_slug := v_base || '-' || v_n;
+  end loop;
+  return v_slug;
+end $$;
+
 -- Token tiap peran dibuat otomatis dan berbeda: tamu antrean, kru antrean, sesi pelanggan, kru sesi.
 create or replace function public.fill_event_tokens()
 returns trigger
@@ -1331,6 +1380,7 @@ begin
   new.queue_crew_token := coalesce(nullif(new.queue_crew_token, ''), substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
   new.share_token      := coalesce(nullif(new.share_token, ''),      substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
   new.crew_token       := coalesce(nullif(new.crew_token, ''),       substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
+  new.queue_slug       := coalesce(nullif(new.queue_slug, ''),       public.make_queue_slug(new.name, new.id));
   return new;
 end $$;
 
@@ -1464,6 +1514,17 @@ begin
   perform set_config('memoribox.skip_sync', '0', true);
 end $$;
 
+
+-- Isi slug untuk acara yang sudah ada (satu per satu agar bentrok nama tertangani).
+do $$
+declare
+  r record;
+begin
+  for r in select id, name from public.financial_events where queue_slug is null or queue_slug = '' order by id loop
+    update public.financial_events set queue_slug = public.make_queue_slug(r.name, r.id) where id = r.id;
+  end loop;
+end $$;
+
 -- Daftar acara ringan untuk panel admin: tanpa JSON sesi (bisa ribuan baris), hanya jumlah sesi dan pemasukan.
 create or replace function public.admin_event_list()
 returns jsonb
@@ -1481,7 +1542,7 @@ begin
       'pricing_mode', e.pricing_mode, 'voucher_price', e.voucher_price, 'no_voucher_price', e.no_voucher_price,
       'session_price', e.session_price, 'print_price', e.print_price,
       'share_per_voucher', e.share_per_voucher, 'share_percent', e.share_percent,
-      'queue_token', e.queue_token, 'queue_crew_token', e.queue_crew_token,
+      'queue_token', e.queue_token, 'queue_crew_token', e.queue_crew_token, 'queue_slug', e.queue_slug,
       'share_token', e.share_token, 'crew_token', e.crew_token, 'queue_open', e.queue_open
     ) order by e.date desc)
     from public.financial_events e
@@ -1490,3 +1551,50 @@ end $$;
 
 revoke execute on function public.admin_event_list() from public, anon;
 grant execute on function public.admin_event_list() to authenticated;
+
+-- Realtime: panel admin (login) menerima perubahan antrean seketika. Tamu/TV/kru tanpa login tidak punya
+-- akses SELECT ke tabel, jadi mereka tetap memakai polling (1,5-5 detik) lewat RPC.
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables
+                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'event_queues') then
+    alter publication supabase_realtime add table public.event_queues;
+  end if;
+end $$;
+
+-- Acara ringkas untuk Dashboard/Keuangan: seluruh kolom kecuali sesi penuh & catatan; sesi hanya memuat
+-- voucher/print (yang dibutuhkan untuk menghitung total), sehingga payload jauh lebih kecil.
+create or replace function public.admin_events_compact()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if auth.role() <> 'authenticated' then raise exception 'not allowed'; end if;
+  return coalesce((
+    select jsonb_agg(
+      (to_jsonb(e) - 'sessions' - 'session_notes') || jsonb_build_object('sessions', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'no_voucher', coalesce((x->>'no_voucher')::boolean, false),
+          'prints', coalesce((x->>'prints')::int, 0)))
+        from jsonb_array_elements(e.sessions) x), '[]'::jsonb))
+      order by e.date desc)
+    from public.financial_events e
+  ), '[]'::jsonb);
+end $$;
+
+revoke execute on function public.admin_events_compact() from public, anon;
+grant execute on function public.admin_events_compact() to authenticated;
+
+-- Nomor antrean unik per acara. Dilewati (dengan peringatan) bila data lama sudah punya duplikat.
+do $$
+begin
+  if exists (select 1 from public.event_queues group by event_id, seq_number having count(*) > 1) then
+    raise notice 'Indeks unik antrean dilewati: ada seq_number ganda. Bersihkan duplikat lalu jalankan ulang.';
+  else
+    create unique index if not exists idx_event_queues_event_seq_uniq on public.event_queues(event_id, seq_number);
+  end if;
+end $$;

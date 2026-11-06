@@ -23,8 +23,8 @@ import {
   FiX,
 } from 'react-icons/fi';
 import { format, parseISO } from 'date-fns';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import ErrorState from '@/components/ui/ErrorState';
+import { unwrap } from '@/lib/db';
 import { formatRupiah, formatNumberWithDots } from '@/lib/utils';
 import {
   eventTotal,
@@ -32,6 +32,7 @@ import {
   eventStudioNet,
   isPercentMode,
   voucherCount,
+  SHARING_SOURCE,
 } from '@/lib/photoSession';
 
 export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }) {
@@ -47,6 +48,7 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
   const [transactions, setTransactions] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [addMode, setAddMode] = useState('custom'); // 'schedule' | 'custom'
   const [searchQuery, setSearchQuery] = useState('');
   const [eventSearchQuery, setEventSearchQuery] = useState('');
@@ -84,27 +86,21 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setLoading(true);
+    setLoadError(false);
     try {
-      let eventsData = [];
-      let trxData = [];
-      let schedData = [];
-      let settingsData = [];
+      // Acara dimuat ringkas (sesi hanya berisi voucher/print) karena layar ini hanya menghitung total.
+      const [eRes, tRes, sRes, schRes] = await Promise.all([
+        supabase.rpc('admin_events_compact'),
+        supabase.from('transactions').select('*').order('date', { ascending: false }),
+        supabase.from('settings').select('*'),
+        supabase.from('booked_dates').select('*').order('date', { ascending: true }),
+      ]);
 
-      try {
-        const [eRes, tRes, sRes, schRes] = await Promise.all([
-          supabase.from('financial_events').select('*').order('date', { ascending: false }),
-          supabase.from('transactions').select('*').order('date', { ascending: false }),
-          supabase.from('settings').select('*'),
-          supabase.from('booked_dates').select('*').order('date', { ascending: true }),
-        ]);
-
-        if (eRes.data && eRes.data.length > 0) eventsData = eRes.data;
-        if (tRes.data) trxData = tRes.data;
-        if (sRes.data) settingsData = sRes.data;
-        if (schRes.data) schedData = schRes.data;
-      } catch (err) {
-        console.warn('Finance DB fallback:', err);
-      }
+      const eventsData = unwrap(eRes) || [];
+      // Baris sharing otomatis (dibuat database) disembunyikan: sharing sudah dihitung dari sesi di getEventFinancials.
+      const trxData = (unwrap(tRes) || []).filter((t) => t.auto_source !== SHARING_SOURCE);
+      const settingsData = unwrap(sRes) || [];
+      const schedData = unwrap(schRes) || [];
 
       setEvents(eventsData);
       setTransactions(trxData);
@@ -144,7 +140,7 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
       }
     } catch (error) {
       console.error('Finance error:', error);
-      toast.error('Gagal mengambil data keuangan');
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -207,7 +203,7 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
     setIsUpdatingTarget(true);
     try {
       const val = getRawNumber(targetAllTime);
-      await supabase.from('settings').upsert({ key: 'target_all_time', value: val }, { onConflict: 'key' });
+      unwrap(await supabase.from('settings').upsert({ key: 'target_all_time', value: val }, { onConflict: 'key' }));
       setAllTargets((prev) => ({ ...prev, target_all_time: val }));
       setIsEditingAllTime(false);
       toast.success('Target bisnis keseluruhan tersimpan');
@@ -225,7 +221,7 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
     try {
       const val = getRawNumber(targetKeuntungan);
       const key = `target_keuntungan_${targetMonth}`;
-      await supabase.from('settings').upsert({ key, value: val }, { onConflict: 'key' });
+      unwrap(await supabase.from('settings').upsert({ key, value: val }, { onConflict: 'key' }));
       setAllTargets((prev) => ({ ...prev, [key]: val }));
       setIsEditingMonthly(false);
       toast.success(`Target bulan ${targetMonth} tersimpan`);
@@ -245,9 +241,11 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
         ...customTargets,
         { id: Date.now().toString(), name: newCustomTarget.name, amount: newCustomTarget.amount },
       ];
-      await supabase
-        .from('settings')
-        .upsert({ key: 'custom_targets', value: JSON.stringify(updated) }, { onConflict: 'key' });
+      unwrap(
+        await supabase
+          .from('settings')
+          .upsert({ key: 'custom_targets', value: JSON.stringify(updated) }, { onConflict: 'key' })
+      );
       setCustomTargets(updated);
       setNewCustomTarget({ name: '', amount: '' });
       toast.success('Target kustom berhasil ditambahkan');
@@ -260,9 +258,11 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
   const handleDeleteCustomTarget = async (id) => {
     try {
       const updated = customTargets.filter((t) => t.id !== id);
-      await supabase
-        .from('settings')
-        .upsert({ key: 'custom_targets', value: JSON.stringify(updated) }, { onConflict: 'key' });
+      unwrap(
+        await supabase
+          .from('settings')
+          .upsert({ key: 'custom_targets', value: JSON.stringify(updated) }, { onConflict: 'key' })
+      );
       setCustomTargets(updated);
       toast.success('Target kustom dihapus');
     } catch (error) {
@@ -282,13 +282,11 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
         amount: getRawNumber(newOperationalExpense.amount),
       };
       const updatedList = [newItem, ...operationalExpenses];
-      try {
+      unwrap(
         await supabase
           .from('settings')
-          .upsert({ key: 'operational_expenses', value: JSON.stringify(updatedList) }, { onConflict: 'key' });
-      } catch (err) {
-        console.warn('Sync operational error:', err);
-      }
+          .upsert({ key: 'operational_expenses', value: JSON.stringify(updatedList) }, { onConflict: 'key' })
+      );
       setOperationalExpenses(updatedList);
       setNewOperationalExpense({ description: '', amount: '', date: format(new Date(), 'yyyy-MM-dd') });
       setIsAddOpModalOpen(false);
@@ -301,13 +299,11 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
   const handleDeleteOperationalExpense = async (id) => {
     try {
       const updatedList = operationalExpenses.filter((item) => item.id !== id);
-      try {
+      unwrap(
         await supabase
           .from('settings')
-          .upsert({ key: 'operational_expenses', value: JSON.stringify(updatedList) }, { onConflict: 'key' });
-      } catch (err) {
-        console.warn('Delete op error:', err);
-      }
+          .upsert({ key: 'operational_expenses', value: JSON.stringify(updatedList) }, { onConflict: 'key' })
+      );
       setOperationalExpenses(updatedList);
       toast.success('Pengeluaran operasional dihapus');
     } catch (error) {
@@ -326,16 +322,8 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
         is_locked: false,
       };
 
-      let newId = Date.now();
-      try {
-        const { data, error } = await supabase.from('financial_events').insert([payload]).select();
-        if (error) throw error;
-        if (data && data[0]) newId = data[0].id;
-      } catch (err) {
-        console.warn('Add event fallback:', err);
-      }
-
-      const created = { id: newId, ...payload, created_at: new Date().toISOString() };
+      // ID dan token dibuat database; tidak ada acara "palsu" bila penyimpanan gagal.
+      const created = { ...unwrap(await supabase.from('financial_events').insert([payload]).select().single()), sessions: [] };
       setEvents((prev) => [created, ...prev]);
       setNewEvent({ name: '', date: format(new Date(), 'yyyy-MM-dd'), income: '' });
       setIsAddEventModalOpen(false);
@@ -347,11 +335,7 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
 
   const handleToggleLock = async (id, currentStatus) => {
     try {
-      try {
-        await supabase.from('financial_events').update({ is_locked: !currentStatus }).eq('id', id);
-      } catch (err) {
-        console.warn('Lock err:', err);
-      }
+      unwrap(await supabase.from('financial_events').update({ is_locked: !currentStatus }).eq('id', id));
       setEvents((prev) => prev.map((ev) => (ev.id === id ? { ...ev, is_locked: !currentStatus } : ev)));
       toast.success(!currentStatus ? 'Event disimpan & dikunci' : 'Mode Edit aktif');
     } catch (error) {
@@ -362,11 +346,7 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
   const handleUpdateIncome = async (eventId) => {
     try {
       const newIncome = getRawNumber(incomeDraft);
-      try {
-        await supabase.from('financial_events').update({ income: newIncome }).eq('id', eventId);
-      } catch (err) {
-        console.warn('Update income err:', err);
-      }
+      unwrap(await supabase.from('financial_events').update({ income: newIncome }).eq('id', eventId));
       setEvents((prev) => prev.map((ev) => (ev.id === eventId ? { ...ev, income: newIncome } : ev)));
       setIsEditingIncome(false);
       toast.success('Pemasukan event diperbarui!');
@@ -380,7 +360,6 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
     if (!newTransaction.description || !newTransaction.amount) return;
     try {
       const payload = {
-        id: Date.now(),
         date: format(new Date(), 'yyyy-MM-dd'),
         type: 'event_expense',
         description: newTransaction.description,
@@ -388,13 +367,9 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
         event_id: eventId,
       };
 
-      try {
-        await supabase.from('transactions').insert([payload]);
-      } catch (err) {
-        console.warn('Add trx err:', err);
-      }
+      const saved = unwrap(await supabase.from('transactions').insert([payload]).select().single());
 
-      setTransactions((prev) => [payload, ...prev]);
+      setTransactions((prev) => [saved, ...prev]);
       setNewTransaction({ type: 'event_expense', description: '', amount: '', event_id: '' });
       toast.success('Pengeluaran ditambahkan!');
     } catch (error) {
@@ -404,11 +379,7 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
 
   const handleDeleteTransaction = async (id) => {
     try {
-      try {
-        await supabase.from('transactions').delete().eq('id', id);
-      } catch (err) {
-        console.warn('Delete trx err:', err);
-      }
+      unwrap(await supabase.from('transactions').delete().eq('id', id));
       setTransactions((prev) => prev.filter((t) => t.id !== id));
       toast.success('Pengeluaran dihapus');
     } catch (error) {
@@ -418,12 +389,8 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
 
   const handleDeleteEvent = async (id) => {
     try {
-      try {
-        await supabase.from('financial_events').delete().eq('id', id);
-        await supabase.from('transactions').delete().eq('event_id', id);
-      } catch (err) {
-        console.warn('Delete event err:', err);
-      }
+      // Transaksi ikut terhapus oleh database (ON DELETE CASCADE).
+      unwrap(await supabase.from('financial_events').delete().eq('id', id));
       setEvents((prev) => prev.filter((ev) => ev.id !== id));
       setTransactions((prev) => prev.filter((t) => t.event_id !== id));
       if (selectedEventId === id) setSelectedEventId(null);
@@ -434,8 +401,9 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
   };
 
   // PDF Download
-  const downloadRecapPDF = () => {
+  const downloadRecapPDF = async () => {
     try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
       const doc = new jsPDF();
       doc.setFontSize(16);
       doc.setTextColor(28, 23, 0);
@@ -485,6 +453,10 @@ export default function AdminFinance({ activeSubTab = 'events', onSubTabChange }
       toast.error('Gagal mengunduh PDF');
     }
   };
+
+  if (loadError) {
+    return <ErrorState title="Gagal memuat data keuangan" onRetry={() => fetchData(true)} />;
+  }
 
   if (loading) {
     return (

@@ -6,7 +6,9 @@ import { FiVolume2, FiVolumeX, FiCheckCircle, FiClock, FiMaximize } from 'react-
 import Button from '@/components/ui/Button';
 import { useModal } from '@/components/ui/ModalProvider';
 import { usePolling } from '@/lib/usePolling';
-import { unlockAudio, playChime, isAudioReady } from '@/lib/chime';
+import QRCode from 'qrcode';
+import { unlockAudio, playChime, speak, announceQueue, isAudioReady } from '@/lib/chime';
+import { queueGuestUrl } from '@/lib/appUrls';
 import { fetchQueueState } from '@/lib/queueService';
 import { ACTIVE_STATUSES } from '@/lib/queueStatus';
 
@@ -17,7 +19,11 @@ export default function TVDisplayPage({ params }) {
   const [queueState, setQueueState] = useState([]);
   const [eventName, setEventName] = useState('');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const mutedRef = useRef(false);
   const prevCalledRef = useRef(null);
+  const loadedRef = useRef(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
   const { open, closeTop } = useModal();
 
   // Load queue state
@@ -32,17 +38,36 @@ export default function TVDisplayPage({ params }) {
     // 'heading' & 'serving' tetap dianggap aktif: nomor tidak boleh hilang dari TV setelah tamu menekan "Menuju booth".
     const currentCalled = list?.find((q) => ACTIVE_STATUSES.includes(q.status));
     if (currentCalled) {
-      // Check if new ticket is called or recall counter increased
+      // Nomor baru dipanggil atau penghitung panggil-ulang naik: bunyikan bel lalu ucapkan nomornya.
+      // Pemuatan pertama tidak diumumkan agar refresh halaman TV tidak mengulang panggilan lama.
       const prev = prevCalledRef.current;
       const isNewCall = !prev || prev.queue_number !== currentCalled.queue_number;
       const isRecall = prev && prev.queue_number === currentCalled.queue_number && prev.called_count !== currentCalled.called_count;
 
-      if (isNewCall || isRecall) {
-        playChime();
+      if (loadedRef.current && !mutedRef.current && (isNewCall || isRecall)) {
+        announceQueue(currentCalled.queue_number);
       }
       prevCalledRef.current = currentCalled;
+    } else {
+      prevCalledRef.current = null;
     }
+    loadedRef.current = true;
   };
+
+  // QR dibuat di perangkat (tanpa layanan pihak ketiga) ke halaman tiket tamu acara ini.
+  useEffect(() => {
+    const url = queueGuestUrl(slug);
+    const full = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    let ignore = false;
+    QRCode.toDataURL(full, { width: 360, margin: 1, color: { dark: '#1C1700', light: '#ffffff' } })
+      .then((dataUrl) => {
+        if (!ignore) setQrDataUrl(dataUrl);
+      })
+      .catch(() => {});
+    return () => {
+      ignore = true;
+    };
+  }, [slug]);
 
   // Dedicated TV polling: runs continuously (pauseWhenHidden: false)
   usePolling(loadData, 3000, true, { pauseWhenHidden: false });
@@ -73,6 +98,7 @@ export default function TVDisplayPage({ params }) {
                 onClick={() => {
                   unlockAudio();
                   playChime();
+                  setTimeout(() => speak('Suara panggilan aktif'), 1200);
                   setAudioUnlocked(true);
                   if (typeof closeModal === 'function') {
                     closeModal();
@@ -127,22 +153,40 @@ export default function TVDisplayPage({ params }) {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Audio Indicator */}
-          <div
-            className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 border ${
-              audioUnlocked
-                ? 'bg-green-50 border-green-200 text-success'
-                : 'bg-amber-50 border-amber-200 text-warning cursor-pointer'
+          {/* Suara: aktifkan sekali, lalu bisa dimute/unmute kapan saja */}
+          <button
+            type="button"
+            aria-pressed={audioUnlocked && !muted}
+            aria-label={!audioUnlocked ? 'Aktifkan suara' : muted ? 'Nyalakan suara' : 'Matikan suara'}
+            className={`min-h-11 px-4 rounded-full text-xs font-bold flex items-center gap-2 border cursor-pointer transition ${
+              !audioUnlocked
+                ? 'bg-amber-50 border-amber-200 text-warning'
+                : muted
+                ? 'bg-bg border-line text-ink-700 hover:bg-yellow-50'
+                : 'bg-green-50 border-green-200 text-success hover:bg-green-100'
             }`}
             onClick={() => {
-              unlockAudio();
-              playChime();
-              setAudioUnlocked(true);
+              if (!audioUnlocked) {
+                unlockAudio();
+                playChime();
+                setTimeout(() => speak('Suara panggilan aktif'), 1200);
+                setAudioUnlocked(true);
+                return;
+              }
+              const next = !muted;
+              mutedRef.current = next;
+              setMuted(next);
+              if (next) {
+                // Hentikan ucapan yang sedang berjalan agar langsung senyap.
+                if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
+              } else {
+                playChime();
+              }
             }}
           >
-            {audioUnlocked ? <FiVolume2 className="text-base" /> : <FiVolumeX className="text-base" />}
-            <span>{audioUnlocked ? 'Audio Aktif' : 'Ketuk Aktifkan Audio'}</span>
-          </div>
+            {audioUnlocked && !muted ? <FiVolume2 className="text-base" /> : <FiVolumeX className="text-base" />}
+            <span>{!audioUnlocked ? 'Ketuk Aktifkan Suara' : muted ? 'Suara Mati' : 'Suara Aktif'}</span>
+          </button>
 
           {/* Fullscreen Button */}
           <button
@@ -180,10 +224,19 @@ export default function TVDisplayPage({ params }) {
             </div>
 
             {/* Sub note */}
-            <div className="w-full bg-yellow-50 py-3 px-6 rounded-2xl border border-yellow-200 flex items-center justify-center gap-2 text-xs sm:text-sm text-ink-700 font-semibold">
-              <FiCheckCircle className="text-success text-base shrink-0" />
-              <span>Silakan menuju ke booth photobooth untuk memulai sesi foto Anda.</span>
-            </div>
+            {/* Keterangan mengikuti status nomor aktif; tidak tampil bila belum ada yang dipanggil. */}
+            {currentlyCalled && (
+              <div className="w-full bg-yellow-50 py-3 px-6 rounded-2xl border border-yellow-200 flex items-center justify-center gap-2 text-xs sm:text-sm text-ink-700 font-semibold">
+                <FiCheckCircle className="text-success text-base shrink-0" />
+                <span>
+                  {currentlyCalled.status === 'serving'
+                    ? 'Sedang berfoto di booth.'
+                    : currentlyCalled.status === 'heading'
+                    ? 'Sedang menuju booth.'
+                    : 'Silakan menuju ke booth photobooth.'}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -229,9 +282,23 @@ export default function TVDisplayPage({ params }) {
             )}
           </div>
 
-          {/* Footer note */}
-          <div className="pt-3 border-t border-line text-center text-xs text-ink-500 font-medium">
-            Scan QR di ponsel Anda untuk mendaftar tanpa antre berdiri.
+          {/* QR ambil nomor */}
+          <div className="pt-3 border-t border-line flex items-center gap-4 shrink-0">
+            <div className="bg-white rounded-2xl border border-line p-2 shrink-0 size-[clamp(7rem,22vh,12rem)] flex items-center justify-center">
+              {qrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qrDataUrl} alt="QR untuk mengambil nomor antrean" className="w-full h-full object-contain block" />
+              ) : (
+                <div className="size-7 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <span className="inline-block text-xs font-extrabold uppercase tracking-wider text-yellow-800 mb-1">Scan HP</span>
+              <p className="font-heading font-extrabold text-lg lg:text-xl text-ink-900 leading-tight">Ambil nomor antrean</p>
+              <p className="text-xs lg:text-sm text-ink-500 mt-1 leading-snug">
+                Pindai QR ini untuk mendaftar tanpa berdiri mengantre. HP Anda akan berbunyi saat giliran tiba.
+              </p>
+            </div>
           </div>
         </div>
       </main>

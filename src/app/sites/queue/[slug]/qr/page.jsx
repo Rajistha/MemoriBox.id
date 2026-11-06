@@ -1,6 +1,8 @@
 'use client';
 
-import React, { use } from 'react';
+import React, { use, useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import { queueGuestUrl } from '@/lib/appUrls';
 import Image from 'next/image';
 import { FiCamera, FiSmartphone, FiArrowRight } from 'react-icons/fi';
 
@@ -8,13 +10,22 @@ export default function KioskQRPage({ params }) {
   const unwrappedParams = use(params);
   const slug = unwrappedParams.slug;
 
-  const targetUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/queue/${slug}`
-    : `https://queue.memoribox.id/${slug}`;
+  const [qrImageUrl, setQrImageUrl] = useState('');
 
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(
-    targetUrl
-  )}&margin=15&color=1C1700`;
+  // QR dibuat di perangkat ke tautan tiket tamu yang benar (subdomain queue, atau /queue di localhost).
+  useEffect(() => {
+    const url = queueGuestUrl(slug);
+    const full = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    let ignore = false;
+    QRCode.toDataURL(full, { width: 480, margin: 2, color: { dark: '#1C1700', light: '#ffffff' } })
+      .then((dataUrl) => {
+        if (!ignore) setQrImageUrl(dataUrl);
+      })
+      .catch(() => {});
+    return () => {
+      ignore = true;
+    };
+  }, [slug]);
 
   return (
     <div className="min-h-screen bg-bg text-ink-900 flex flex-col items-center justify-between p-6 sm:p-10 text-center">
@@ -42,12 +53,14 @@ export default function KioskQRPage({ params }) {
 
         {/* QR Code Container */}
         <div className="relative w-64 h-64 rounded-2xl overflow-hidden border-2 border-line bg-white p-3 shadow-inner">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={qrImageUrl}
-            alt={`QR Code Antrian Event ${slug}`}
-            className="w-full h-full object-contain"
-          />
+          {qrImageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={qrImageUrl} alt="QR Code untuk mengambil nomor antrean" className="w-full h-full object-contain" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="size-8 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
         </div>
 
         {/* 3 Step Instruction */}
@@ -68,7 +81,7 @@ export default function KioskQRPage({ params }) {
 
       {/* Footer */}
       <footer className="text-xs text-ink-500">
-        Memoribox Smart Queue System • Event: <strong>{slug}</strong>
+        Memoribox Smart Queue System
       </footer>
     </div>
   );

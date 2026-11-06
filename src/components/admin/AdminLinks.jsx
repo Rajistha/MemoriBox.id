@@ -24,6 +24,7 @@ import {
   FiX,
   FiSave,
 } from 'react-icons/fi';
+import ErrorState from '@/components/ui/ErrorState';
 import { supabase } from '@/lib/supabase';
 import { openExternal } from '@/lib/openExternal';
 import { siteUrl, isLocalHost } from '@/lib/domains';
@@ -53,6 +54,7 @@ export default function AdminLinks() {
   const [profile, setProfile] = useState(DEFAULT_LINKTREE_PROFILE);
   const [links, setLinks] = useState(DEFAULT_LINKS);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   // Link Modal State
@@ -82,6 +84,7 @@ export default function AdminLinks() {
 
   const loadData = async (isRefresh = false) => {
     if (isRefresh) setLoading(true);
+    setLoadError(false);
     try {
       const { data, error } = await supabase
         .from('settings')
@@ -95,8 +98,9 @@ export default function AdminLinks() {
         if (data.value.links && Array.isArray(data.value.links)) setLinks(data.value.links);
       }
     } catch (err) {
+      // Jangan biarkan editor terbuka dengan data bawaan: menyimpan akan menimpa bio-link asli di database.
       console.error('Gagal memuat bio-link:', err);
-      toast.error('Gagal memuat bio-link dari database');
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -241,6 +245,10 @@ export default function AdminLinks() {
     setDirty(true);
     handleSaveAll(links, profileDraft);
   };
+
+  if (loadError) {
+    return <ErrorState title="Gagal memuat bio-link" message="Editor dikunci agar data bio-link Anda tidak tertimpa." onRetry={() => loadData(true)} />;
+  }
 
   if (loading) {
     return (

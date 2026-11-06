@@ -23,6 +23,7 @@ import { formatEvent } from '@/lib/eventModel';
 import NewEventModal from '@/components/admin/NewEventModal';
 import PricingConfigModal from '@/components/admin/PricingConfigModal';
 import { useModal } from '@/components/ui/ModalProvider';
+import { usePolling } from '@/lib/usePolling';
 import { openExternal } from '@/lib/openExternal';
 import { supabase } from '@/lib/supabase';
 import { formatRupiah, formatDateTime, formatDate } from '@/lib/utils';
@@ -89,6 +90,21 @@ export default function AdminSesi() {
       ignore = true;
     };
   }, []);
+
+  // Sesi yang dicatat kru atau dari antrean muncul otomatis: ambil ulang sesi acara terbuka tiap 8 detik.
+  usePolling(
+    async () => {
+      if (!selectedEvent) return;
+      const id = selectedEvent.id;
+      const { data } = await supabase.from('financial_events').select('sessions,income').eq('id', id).single();
+      if (!data) return;
+      const sessions = data.sessions || [];
+      setSelectedEvent((prev) => (prev && prev.id === id ? { ...prev, sessions, income: data.income, session_count: sessions.length } : prev));
+      setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, session_count: sessions.length, income: data.income } : e)));
+    },
+    8000,
+    !!selectedEvent && !detailLoading
+  );
 
   // Daftar tidak membawa JSON sesi; baris lengkap dimuat sekali saat acara dibuka.
   const handleEnterEvent = async (ev) => {
