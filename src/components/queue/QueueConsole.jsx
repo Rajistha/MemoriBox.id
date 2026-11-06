@@ -16,7 +16,6 @@ import {
 } from 'react-icons/fi';
 import { supabase } from '@/lib/supabase';
 import { usePolling } from '@/lib/usePolling';
-import { playChime, unlockAudio } from '@/lib/chime';
 import { isActive, statusMeta } from '@/lib/queueStatus';
 import { formatRp } from '@/lib/appUrls';
 import { pricingOf } from '@/lib/photoSession';
@@ -167,7 +166,6 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
 
   const callNext = (currentAction = 'complete') =>
     run(async () => {
-      unlockAudio();
       const data = await rpc('crew_queue_call_next', {
         p_auto_session: autoSession,
         p_current_action: currentAction,
@@ -178,7 +176,6 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
         return;
       }
       if (currentAction === 'complete' && autoSession) onSessionsRef.current?.();
-      playChime(0.8);
       toast.success(`Memanggil ${data.queue_number}`);
     }, 'Gagal memanggil antrean');
 
@@ -199,9 +196,7 @@ export default function QueueConsole({ token, onEvent, onSessionsChanged }) {
 
   const recall = (item) =>
     run(async () => {
-      unlockAudio();
       await rpcStrict('crew_queue_recall', { p_id: item.id });
-      playChime(0.8);
       await refresh();
       toast.success(`Memanggil ulang ${item.queue_number}`);
     }, 'Gagal memanggil ulang');
