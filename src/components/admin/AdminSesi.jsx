@@ -41,8 +41,10 @@ import {
 import { liveUrl, crewUrl } from '@/lib/appUrls';
 
 export default function AdminSesi() {
-  const { prompt, confirm, open } = useModal();
+  const { confirm, open } = useModal();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [events, setEvents] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -55,46 +57,29 @@ export default function AdminSesi() {
 
   const fetchEvents = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
-      if (supabase && supabase.from) {
-        const { data, error } = await supabase
-          .from('financial_events')
-          .select('*')
-          .order('date', { ascending: false });
-
-        if (!error && data && data.length > 0) {
-          const formatted = data.map(formatEvent);
-          setEvents(formatted);
-          setLoading(false);
-          return;
-        }
-      }
+      const { data, error } = await supabase.rpc('admin_event_list');
+      if (error) throw error;
+      setEvents((data || []).map(formatEvent));
     } catch (err) {
       console.warn('Sesi events fetch error:', err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
-
-    // Tanpa data contoh: bila belum ada acara, daftar dibiarkan kosong.
-    setEvents([]);
-    setLoading(false);
   };
 
   useEffect(() => {
     let ignore = false;
     async function load() {
       try {
-        if (supabase && supabase.from) {
-          const { data, error } = await supabase
-            .from('financial_events')
-            .select('*')
-            .order('date', { ascending: false });
-
-          if (!ignore && !error && data && data.length > 0) {
-            const formatted = data.map(formatEvent);
-            setEvents(formatted);
-          }
-        }
+        const { data, error } = await supabase.rpc('admin_event_list');
+        if (error) throw error;
+        if (!ignore) setEvents((data || []).map(formatEvent));
       } catch (err) {
         console.warn('Initial load sesi events error:', err);
+        if (!ignore) setLoadError(true);
       } finally {
         if (!ignore) setLoading(false);
       }
@@ -105,24 +90,42 @@ export default function AdminSesi() {
     };
   }, []);
 
-  const handleEnterEvent = (ev) => {
+  // Daftar tidak membawa JSON sesi; baris lengkap dimuat sekali saat acara dibuka.
+  const handleEnterEvent = async (ev) => {
     setSelectedEvent(ev);
     setActiveTab('sessions');
+    if (Array.isArray(ev.sessions) && ev.sessions.length > 0) return;
+    setDetailLoading(true);
+    try {
+      const { data, error } = await supabase.from('financial_events').select('*').eq('id', ev.id).single();
+      if (error) throw error;
+      const fresh = { ...formatEvent(data), session_count: (data.sessions || []).length };
+      setSelectedEvent((prev) => (prev && prev.id === ev.id ? fresh : prev));
+      setEvents((prev) => prev.map((e) => (e.id === ev.id ? { ...e, session_count: fresh.session_count } : e)));
+    } catch (err) {
+      console.error('Muat sesi acara gagal:', err);
+      toast.error('Gagal memuat sesi acara');
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
-  const handleCopy = (url, key) => {
-    if (typeof navigator !== 'undefined') {
-      const full = url.startsWith('http') ? url : `${window.location.origin}${url}`;
-      navigator.clipboard.writeText(full);
+  const handleCopy = async (url, key) => {
+    const full = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    try {
+      await navigator.clipboard.writeText(full);
       setCopiedKey(key);
       toast.success('Tautan disalin');
       setTimeout(() => setCopiedKey(null), 2000);
+    } catch {
+      toast.error('Gagal menyalin tautan');
     }
   };
 
   // Terapkan hasil server (sesi + pemasukan terbaru) ke state tampilan.
   const applyServerSessions = (result) => {
-    const patch = { sessions: result.sessions || [], income: result.income };
+    const sessions = result.sessions || [];
+    const patch = { sessions, income: result.income, session_count: sessions.length };
     setSelectedEvent((prev) => (prev ? { ...prev, ...patch } : prev));
     setEvents((prev) => prev.map((ev) => (ev.id === selectedEvent.id ? { ...ev, ...patch } : ev)));
   };
@@ -151,6 +154,13 @@ export default function AdminSesi() {
 
   const handleDeleteSession = async (sessionId) => {
     if (!selectedEvent) return;
+    const ok = await confirm({
+      title: 'Hapus sesi foto?',
+      message: 'Sesi ini dihapus permanen dan omzet serta bagi hasil dihitung ulang.',
+      confirmText: 'Hapus',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       const { data, error } = await supabase.rpc('admin_delete_session', {
         p_event_id: selectedEvent.id,
@@ -174,7 +184,7 @@ export default function AdminSesi() {
     if (rpcError) throw rpcError;
     const { data, error: readError } = await supabase.from('financial_events').select('*').eq('id', id).single();
     if (readError) throw readError;
-    const fresh = formatEvent(data);
+    const fresh = { ...formatEvent(data), session_count: (data.sessions || []).length };
     setSelectedEvent(fresh);
     setEvents((prev) => prev.map((e) => (e.id === id ? fresh : e)));
     toast.success('Pengaturan tersimpan');
@@ -231,19 +241,19 @@ export default function AdminSesi() {
             </h2>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 overflow-x-auto shrink-0">
             <button
               type="button"
               onClick={fetchEvents}
-              className="p-2.5 rounded-xl border border-line bg-white hover:bg-bg text-ink-700 transition shadow-2xs cursor-pointer"
-              title="Segarkan Data"
+              className="shrink-0 size-11 flex items-center justify-center rounded-xl border border-line bg-white hover:bg-bg text-ink-700 transition shadow-2xs cursor-pointer"
+              aria-label="Segarkan data"
             >
               <FiRefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             </button>
             <button
               type="button"
               onClick={handleCreateEvent}
-              className="bg-yellow-400 hover:bg-yellow-300 text-ink-900 font-bold text-xs sm:text-sm py-2.5 px-4 rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              className="shrink-0 min-h-11 bg-yellow-400 hover:bg-yellow-300 text-ink-900 font-bold text-xs sm:text-sm px-4 rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <FiPlus size={16} />
               <span>Tambah Acara</span>
@@ -270,13 +280,24 @@ export default function AdminSesi() {
               <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
               <p className="text-xs">Memuat daftar acara...</p>
             </div>
+          ) : loadError ? (
+            <div className="col-span-full bg-white border border-line rounded-2xl p-10 text-center">
+              <p className="text-sm font-semibold text-ink-900">Gagal memuat daftar acara</p>
+              <button
+                type="button"
+                onClick={fetchEvents}
+                className="mt-3 min-h-11 px-4 rounded-xl border border-line bg-white text-xs font-bold text-ink-700 hover:bg-bg cursor-pointer"
+              >
+                Coba lagi
+              </button>
+            </div>
           ) : filteredEvents.length === 0 ? (
             <div className="col-span-full bg-white border border-line rounded-2xl p-12 text-center text-xs text-ink-500">
               Tidak ada acara ditemukan. Klik &quot;Tambah Acara&quot; untuk membuat baru.
             </div>
           ) : (
             filteredEvents.map((ev) => {
-              const count = (ev.sessions || []).length;
+              const count = ev.session_count ?? (ev.sessions || []).length;
               const gross = eventTotal(ev);
 
               return (
@@ -351,8 +372,8 @@ export default function AdminSesi() {
           <button
             type="button"
             onClick={() => setSelectedEvent(null)}
-            className="p-2 text-ink-700 hover:text-ink-900 bg-bg hover:bg-yellow-50 rounded-xl border border-line transition cursor-pointer"
-            title="Kembali ke Daftar Acara"
+            className="shrink-0 size-11 flex items-center justify-center text-ink-700 hover:text-ink-900 bg-bg hover:bg-yellow-50 rounded-xl border border-line transition cursor-pointer"
+            aria-label="Kembali ke daftar acara"
           >
             <FiArrowLeft size={16} />
           </button>
@@ -367,7 +388,7 @@ export default function AdminSesi() {
         </div>
 
         {/* Quick Toolbar */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 overflow-x-auto shrink-0">
           <button
             type="button"
             onClick={handleOpenConfig}
@@ -380,7 +401,7 @@ export default function AdminSesi() {
           <button
             type="button"
             onClick={() => openExternal(liveCustomerUrl)}
-            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-yellow-400 hover:bg-yellow-300 text-ink-900 shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            className="shrink-0 min-h-11 px-3.5 rounded-xl text-xs font-bold bg-yellow-400 hover:bg-yellow-300 text-ink-900 shadow-xs transition flex items-center gap-1.5 cursor-pointer"
           >
             <FiCamera size={14} />
             <span>Live Customer</span>
@@ -389,7 +410,7 @@ export default function AdminSesi() {
           <button
             type="button"
             onClick={() => openExternal(crewInputUrl)}
-            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-bg text-ink-700 border border-line shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+            className="shrink-0 min-h-11 px-3.5 rounded-xl text-xs font-semibold bg-white hover:bg-bg text-ink-700 border border-line shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
           >
             <FiUserCheck size={14} />
             <span>Kru Input</span>
@@ -399,11 +420,11 @@ export default function AdminSesi() {
       </div>
 
       {/* Tabs Inside Event: Catat Sesi | Session Kru | Live Customer */}
-      <div className="flex items-center gap-2 border-b border-line pb-2">
+      <div className="flex items-center gap-2 border-b border-line pb-2 overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab('sessions')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+          className={`shrink-0 min-h-11 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
             activeTab === 'sessions'
               ? 'bg-yellow-400 text-ink-900 shadow-xs'
               : 'text-ink-700 hover:text-ink-900 hover:bg-yellow-50'
@@ -414,7 +435,7 @@ export default function AdminSesi() {
         <button
           type="button"
           onClick={() => setActiveTab('crew')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+          className={`shrink-0 min-h-11 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
             activeTab === 'crew'
               ? 'bg-yellow-400 text-ink-900 shadow-xs'
               : 'text-ink-700 hover:text-ink-900 hover:bg-yellow-50'
@@ -425,7 +446,7 @@ export default function AdminSesi() {
         <button
           type="button"
           onClick={() => setActiveTab('customer')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+          className={`shrink-0 min-h-11 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
             activeTab === 'customer'
               ? 'bg-yellow-400 text-ink-900 shadow-xs'
               : 'text-ink-700 hover:text-ink-900 hover:bg-yellow-50'
@@ -589,7 +610,7 @@ export default function AdminSesi() {
                   {(!selectedEvent.sessions || selectedEvent.sessions.length === 0) ? (
                     <tr>
                       <td colSpan={5} className="py-12 text-center text-xs text-ink-500">
-                        Belum ada sesi foto yang tercatat.
+                        {detailLoading ? 'Memuat sesi...' : 'Belum ada sesi foto yang tercatat.'}
                       </td>
                     </tr>
                   ) : (
@@ -633,8 +654,8 @@ export default function AdminSesi() {
                           <button
                             type="button"
                             onClick={() => handleDeleteSession(sess.id)}
-                            className="p-1.5 text-ink-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                            title="Hapus Sesi"
+                            className="size-11 inline-flex items-center justify-center text-ink-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition cursor-pointer"
+                            aria-label="Hapus sesi"
                           >
                             <FiTrash2 size={14} />
                           </button>

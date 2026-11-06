@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   FiPlus,
   FiExternalLink,
@@ -10,202 +10,155 @@ import {
   FiCheck,
   FiUsers,
   FiRefreshCw,
-  FiTrash2,
   FiArrowLeft,
-  FiVolume2,
-  FiPlay,
-  FiSkipForward,
-  FiCheckCircle,
-  FiClock,
   FiSearch,
   FiSettings,
   FiCamera,
-  FiLayers,
-  FiMinus,
   FiDollarSign,
   FiPercent,
+  FiChevronRight,
+  FiRotateCcw,
+  FiSlash,
 } from 'react-icons/fi';
+import { SiWhatsapp } from 'react-icons/si';
 import toast from 'react-hot-toast';
 import { formatEvent } from '@/lib/eventModel';
 import NewEventModal from '@/components/admin/NewEventModal';
 import PricingConfigModal from '@/components/admin/PricingConfigModal';
+import QueueConsole from '@/components/queue/QueueConsole';
 import { useModal } from '@/components/ui/ModalProvider';
 import { openExternal } from '@/lib/openExternal';
 import { supabase } from '@/lib/supabase';
-import { queueGuestUrl, queueDisplayUrl, queueCrewUrl, queueQrUrl, liveUrl } from '@/lib/appUrls';
-import { formatDate, formatDateTime, formatRupiah } from '@/lib/utils';
-import { playChime, unlockAudio } from '@/lib/chime';
-import {
-  VOUCHER_PRICE,
-  NO_VOUCHER_PRICE,
-  PRINT_PRICE,
-  SESSION_PRICE,
-  sessionPrice,
-  eventTotal,
-  voucherCount,
-  eventSharing,
-  eventStudioNet,
-  isPercentMode,
-  pricingOf,
-} from '@/lib/photoSession';
+import { queueGuestUrl, queueDisplayUrl, queueCrewUrl, queueQrUrl, liveUrl, daysUntil, todayString, newToken, MONTHS } from '@/lib/appUrls';
+import { formatDate, formatRupiah } from '@/lib/utils';
+import { eventTotal, voucherCount, eventSharing, eventStudioNet, isPercentMode } from '@/lib/photoSession';
+
+// Kolom ringan untuk daftar acara (tanpa JSON sesi yang besar); baris lengkap dimuat saat acara dibuka.
+const LIST_COLUMNS =
+  'id,name,date,venue,queue_token,queue_crew_token,share_token,crew_token,pricing_mode,voucher_price,no_voucher_price,session_price,print_price,share_per_voucher,share_percent';
+
+const TABS = [
+  { id: 'queue', label: 'Kontrol Antrean' },
+  { id: 'access', label: 'Tautan & Akses' },
+];
+
+const iconBtn =
+  'shrink-0 size-11 flex items-center justify-center rounded-xl border border-line bg-white hover:bg-yellow-50 text-ink-700 transition cursor-pointer';
 
 export default function AdminQueue() {
-  const { prompt, confirm, open } = useModal();
+  const { open, confirm } = useModal();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedKey, setCopiedKey] = useState(null);
 
-  // Selected event (Masuk ke Event)
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [activeTab, setActiveTab] = useState('queue'); // 'queue' | 'crew' | 'customer'
-  const [queueFilter, setQueueFilter] = useState('all'); // 'all' | 'waiting' | 'called' | 'completed' | 'skipped'
+  const [activeTab, setActiveTab] = useState('queue');
 
-  // Queue state for the selected event
-  const [queues, setQueues] = useState([]);
-  const [isCalling, setIsCalling] = useState(false);
-  const [autoSession, setAutoSession] = useState(true);
-  const [isQueueActive, setIsQueueActive] = useState(true);
-
-  // Fetch all events
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     setLoading(true);
-    try {
-      if (supabase && supabase.from) {
-        const { data, error } = await supabase
-          .from('financial_events')
-          .select('*')
-          .order('date', { ascending: false });
-
-        if (!error && data && data.length > 0) {
-          const formatted = data.map(formatEvent);
-          setEvents(formatted);
-          setLoading(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Queue events fetch error:', err);
-    }
-
-    // Tanpa data contoh: bila belum ada acara, daftar dibiarkan kosong.
-    setEvents([]);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    let ignore = false;
-    async function load() {
-      try {
-        if (supabase && supabase.from) {
-          const { data, error } = await supabase
-            .from('financial_events')
-            .select('*')
-            .order('date', { ascending: false });
-
-          if (!ignore && !error && data && data.length > 0) {
-            const formatted = data.map(formatEvent);
-            setEvents(formatted);
-          }
-        }
-      } catch (err) {
-        console.warn('Initial load queue events error:', err);
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      ignore = true;
-    };
-  }, []);
-
-  // Antrean acara terpilih langsung dari database (tanpa data contoh).
-  const fetchEventQueues = async (event) => {
-    if (!event) return;
+    setLoadError(false);
     try {
       const { data, error } = await supabase
-        .from('event_queues')
-        .select('*')
-        .eq('event_id', event.id)
-        .order('seq_number', { ascending: true });
+        .from('financial_events')
+        .select(LIST_COLUMNS)
+        .order('date', { ascending: false });
       if (error) throw error;
-      setQueues(data || []);
+      setEvents((data || []).map(formatEvent));
     } catch (err) {
-      console.error('Gagal memuat antrean:', err);
-      toast.error('Gagal memuat antrean dari database');
-      setQueues([]);
+      console.warn('Queue events fetch error:', err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const init = async () => {
+      await fetchEvents();
+    };
+    init();
+  }, [fetchEvents]);
+
+  // Muat baris lengkap (termasuk sesi) agar kartu keuangan akurat; dipanggil saat masuk acara dan tiap sesi tercatat.
+  const reloadSelected = useCallback(async (id) => {
+    const { data, error } = await supabase.from('financial_events').select('*').eq('id', id).single();
+    if (error || !data) return null;
+    const fresh = formatEvent(data);
+    setSelectedEvent((prev) => (prev && prev.id === id ? fresh : prev));
+    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, ...fresh, sessions: undefined } : e)));
+    return fresh;
+  }, []);
 
   const handleEnterEvent = (ev) => {
     setSelectedEvent(ev);
     setActiveTab('queue');
-    fetchEventQueues(ev);
+    reloadSelected(ev.id);
   };
 
-  const handleCopy = (url, key) => {
-    if (typeof navigator !== 'undefined') {
-      const full = url.startsWith('http') ? url : `${window.location.origin}${url}`;
-      navigator.clipboard.writeText(full);
+  const handleCopy = async (url, key) => {
+    const full = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    try {
+      await navigator.clipboard.writeText(full);
       setCopiedKey(key);
       toast.success('Tautan disalin');
       setTimeout(() => setCopiedKey(null), 2000);
+    } catch {
+      toast.error('Gagal menyalin tautan');
     }
   };
 
-  // Queue actions
-  const currentCalled = queues.find((q) => q.status === 'called' || q.status === 'serving' || q.status === 'heading');
-  const waitingList = queues.filter((q) => q.status === 'waiting');
-  const completedList = queues.filter((q) => q.status === 'completed');
-  const skippedList = queues.filter((q) => q.status === 'skipped');
-
-  // Helper untuk mencatat antrian selesai langsung ke Sesi Foto & Kas
-  const recordSessionFromQueue = async (queueItem) => {
-    if (!selectedEvent || !queueItem) return;
-    const isPercent = isPercentMode(selectedEvent);
-    const newSession = {
-      id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      queue_number: queueItem.queue_number,
-      customer_name: queueItem.customer_name || '',
-      no_voucher: !isPercent && !!queueItem.no_voucher,
-      prints: queueItem.prints || 0,
-      created_at: new Date().toISOString(),
-    };
-    const currentSessions = Array.isArray(selectedEvent.sessions) ? selectedEvent.sessions : [];
-    const updatedSessions = [newSession, ...currentSessions];
-    const updatedEvent = { ...selectedEvent, sessions: updatedSessions };
-    setSelectedEvent(updatedEvent);
-    setEvents((prev) => prev.map((ev) => (ev.id === selectedEvent.id ? updatedEvent : ev)));
-
-    try {
-      if (supabase && supabase.from) {
-        await supabase
-          .from('financial_events')
-          .update({ sessions: updatedSessions })
-          .eq('id', selectedEvent.id);
-      }
-    } catch (err) {
-      console.warn('Sync queue to sessions error:', err);
+  // Ubah token akses di database lalu sinkronkan ke state. Tautan lama langsung tidak berlaku.
+  const updateToken = async (patch, okMessage) => {
+    const id = selectedEvent.id;
+    const { error } = await supabase.from('financial_events').update(patch).eq('id', id);
+    if (error) {
+      toast.error('Gagal memperbarui tautan: ' + (error.message || 'Error'));
+      return false;
     }
+    setSelectedEvent((prev) => (prev ? { ...prev, ...patch } : prev));
+    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    toast.success(okMessage);
+    return true;
   };
 
-  const handleToggleCurrentNoVoucher = (val) => {
-    if (!currentCalled) return;
-    const updated = queues.map((q) =>
-      q.id === currentCalled.id ? { ...q, no_voucher: val } : q
-    );
-    setQueues(updated);
+  const enableCrewLink = () => updateToken({ queue_crew_token: newToken() }, 'Link kru diaktifkan');
+
+  const regenerateCrewLink = async () => {
+    const ok = await confirm({
+      title: 'Buat ulang link kru?',
+      message: 'Link kru yang sudah dibagikan langsung tidak berlaku. Kirim link baru ke kru booth.',
+      confirmText: 'Buat ulang',
+    });
+    if (ok) updateToken({ queue_crew_token: newToken() }, 'Link kru baru dibuat');
   };
 
-  const handleChangeCurrentPrints = (delta) => {
-    if (!currentCalled) return;
-    const cur = currentCalled.prints || 0;
-    const next = Math.max(0, cur + delta);
-    const updated = queues.map((q) =>
-      q.id === currentCalled.id ? { ...q, prints: next } : q
-    );
-    setQueues(updated);
+  const disableCrewLink = async () => {
+    const ok = await confirm({
+      title: 'Nonaktifkan link kru?',
+      message: 'Kru tidak bisa lagi membuka terminal sampai link diaktifkan kembali. Panel admin ini tetap berfungsi.',
+      confirmText: 'Nonaktifkan',
+      tone: 'danger',
+    });
+    if (ok) updateToken({ queue_crew_token: null }, 'Link kru dinonaktifkan');
+  };
+
+  const regenerateGuestLink = async () => {
+    const ok = await confirm({
+      title: 'Buat ulang link antrean tamu?',
+      message: 'QR dan link tamu yang sudah dibagikan tidak berlaku lagi. Cetak ulang atau bagikan QR yang baru.',
+      confirmText: 'Buat ulang',
+      tone: 'danger',
+    });
+    if (ok) updateToken({ queue_token: newToken() }, 'Link tamu baru dibuat. QR lama tidak berlaku.');
+  };
+
+  // Bagikan tautan lewat WhatsApp (pengguna memilih kontak/grup sendiri di aplikasi WhatsApp).
+  const shareWhatsApp = (label, url) => {
+    const full = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    const text = `${label} ${selectedEvent?.name || ''}\n${full}`.trim();
+    openExternal(`https://wa.me/?text=${encodeURIComponent(text)}`);
   };
 
   // Satu pengaturan untuk mode skema, harga, dan bagi hasil. Disimpan ke database lalu pemasukan & bagi hasil dihitung ulang.
@@ -215,176 +168,19 @@ export default function AdminQueue() {
     if (error) throw error;
     const { error: rpcError } = await supabase.rpc('recalc_event_finance', { p_event_id: id });
     if (rpcError) throw rpcError;
-    const { data, error: readError } = await supabase.from('financial_events').select('*').eq('id', id).single();
-    if (readError) throw readError;
-    const fresh = formatEvent(data);
-    setSelectedEvent(fresh);
-    setEvents((prev) => prev.map((e) => (e.id === id ? fresh : e)));
+    const fresh = await reloadSelected(id);
+    if (!fresh) throw new Error('Gagal memuat ulang acara');
     toast.success('Pengaturan tersimpan');
   };
 
   const handleOpenConfig = () => {
     if (!selectedEvent) return;
-    open(
-      (close) => <PricingConfigModal event={selectedEvent} onClose={close} onSave={savePricingConfig} />,
-      { size: 'md', nonDismissible: true }
-    );
-  };
-
-  // 1. Panggil Berikutnya
-  const handleCallNext = async () => {
-    if (waitingList.length === 0) {
-      toast.error('Tidak ada antrean yang menunggu.');
-      return;
-    }
-    setIsCalling(true);
-    unlockAudio();
-    playChime();
-
-    const prevCalled = currentCalled ? { ...currentCalled } : null;
-    const nextQueue = waitingList[0];
-
-    // Mark previous current as completed
-    const updated = queues.map((q) => {
-      if (currentCalled && q.id === currentCalled.id) {
-        return { ...q, status: 'completed', completed_at: new Date().toISOString() };
-      }
-      if (q.id === nextQueue.id) {
-        return { ...q, status: 'called', called_at: new Date().toISOString() };
-      }
-      return q;
+    open((close) => <PricingConfigModal event={selectedEvent} onClose={close} onSave={savePricingConfig} />, {
+      size: 'md',
+      nonDismissible: true,
     });
-
-    setQueues(updated);
-    setIsCalling(false);
-    toast.success(`Memanggil nomor ${nextQueue.queue_number}`);
-
-    // Otomatis catat sesi untuk antrean sebelumnya yang baru saja selesai
-    if (prevCalled && autoSession) {
-      await recordSessionFromQueue(prevCalled);
-    }
-
-    // Sync to Supabase
-    try {
-      if (supabase && supabase.from) {
-        if (prevCalled) {
-          await supabase.from('event_queues').update({ status: 'completed' }).eq('id', prevCalled.id);
-        }
-        await supabase.from('event_queues').update({ status: 'called', called_at: new Date().toISOString() }).eq('id', nextQueue.id);
-      }
-    } catch {}
   };
 
-  // 2. Panggil Ulang
-  const handleRecall = () => {
-    if (!currentCalled) {
-      toast.error('Belum ada nomor yang sedang dipanggil.');
-      return;
-    }
-    unlockAudio();
-    playChime();
-    toast.success(`Panggil ulang nomor ${currentCalled.queue_number}`);
-  };
-
-  // 3. Selesaikan
-  const handleCompleteCurrent = async () => {
-    if (!currentCalled) return;
-    const finishedItem = { ...currentCalled };
-    const updated = queues.map((q) =>
-      q.id === currentCalled.id ? { ...q, status: 'completed', completed_at: new Date().toISOString() } : q
-    );
-    setQueues(updated);
-
-    if (autoSession) {
-      await recordSessionFromQueue(finishedItem);
-      toast.success(`Nomor ${finishedItem.queue_number} selesai & dicatat ke sesi foto`);
-    } else {
-      toast.success(`Nomor ${finishedItem.queue_number} selesai`);
-    }
-
-    try {
-      if (supabase && supabase.from) {
-        await supabase.from('event_queues').update({ status: 'completed' }).eq('id', finishedItem.id);
-      }
-    } catch {}
-  };
-
-  // 4. Lewati / Skip
-  const handleSkipCurrent = async () => {
-    if (!currentCalled) return;
-    const updated = queues.map((q) =>
-      q.id === currentCalled.id ? { ...q, status: 'skipped' } : q
-    );
-    setQueues(updated);
-    toast.success(`Nomor ${currentCalled.queue_number} dilewati`);
-
-    try {
-      if (supabase && supabase.from) {
-        await supabase.from('event_queues').update({ status: 'skipped' }).eq('id', currentCalled.id);
-      }
-    } catch {}
-  };
-
-  // 5. Tambah Antrean Manual
-  const handleAddManualQueue = async () => {
-    const name = await prompt({
-      title: 'Tambah Tamu Antrean',
-      placeholder: 'Nama Tamu / Rombongan (contoh: Jessica & Teman)',
-      required: true,
-    });
-    if (!name || !name.trim()) return;
-
-    const nextSeq = queues.length + 1;
-    const padNum = String(nextSeq).padStart(2, '0');
-    const newQueueNum = `A-${padNum}`;
-
-    const newTicket = {
-      id: `q-${Date.now()}`,
-      event_id: selectedEvent.id,
-      queue_number: newQueueNum,
-      seq_number: nextSeq,
-      customer_name: name.trim(),
-      status: 'waiting',
-      created_at: new Date().toISOString(),
-    };
-
-    setQueues([...queues, newTicket]);
-    toast.success(`Tiket ${newQueueNum} berhasil diterbitkan`);
-
-    try {
-      if (supabase && supabase.from) {
-        await supabase.from('event_queues').insert({
-          event_id: selectedEvent.id,
-          queue_number: newQueueNum,
-          seq_number: nextSeq,
-          customer_name: name.trim(),
-          status: 'waiting',
-        });
-      }
-    } catch {}
-  };
-
-  // 6. Reset Antrean
-  const handleResetQueue = async () => {
-    const ok = await confirm({
-      title: 'Reset Antrean Acara',
-      message: `Apakah Anda yakin ingin mengosongkan seluruh antrean untuk ${selectedEvent.name}? Tindakan ini tidak dapat dibatalkan.`,
-      confirmText: 'Reset',
-      tone: 'danger',
-    });
-    if (!ok) return;
-
-    setQueues([]);
-    toast.success('Antrean berhasil direset');
-
-    try {
-      if (supabase && supabase.from) {
-        await supabase.from('event_queues').delete().eq('event_id', selectedEvent.id);
-      }
-    } catch {}
-  };
-
-  // Create New Event
   // Acara dibuat langsung di database (ID & token dari server), lalu otomatis muncul di Jadwal, Kas, Antrean, dan Sesi.
   const handleCreateEvent = () => {
     open(
@@ -393,11 +189,7 @@ export default function AdminQueue() {
           title="Acara Baru"
           onClose={close}
           onSubmit={async ({ name, date, venue }) => {
-            const { data, error } = await supabase
-              .from('financial_events')
-              .insert([{ name, date, venue }])
-              .select()
-              .single();
+            const { data, error } = await supabase.from('financial_events').insert([{ name, date, venue }]).select().single();
             if (error) throw error;
             const evt = formatEvent(data);
             setEvents((prev) => [evt, ...prev]);
@@ -410,46 +202,43 @@ export default function AdminQueue() {
     );
   };
 
-  // Filtered Queue List
-  const filteredQueues = queues.filter((q) => {
-    if (queueFilter === 'waiting') return q.status === 'waiting';
-    if (queueFilter === 'called') return q.status === 'called' || q.status === 'serving' || q.status === 'heading';
-    if (queueFilter === 'completed') return q.status === 'completed';
-    if (queueFilter === 'skipped') return q.status === 'skipped';
-    return true;
-  });
-
-  const filteredEvents = events.filter((ev) =>
-    ev.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const today = todayString();
+  const eventGroups = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    const filtered = events.filter((ev) => (ev.name || '').toLowerCase().includes(needle));
+    return [
+      {
+        key: 'upcoming',
+        title: 'Akan datang',
+        dim: false,
+        list: filtered.filter((e) => (e.date || '') >= today).sort((a, b) => (a.date || '').localeCompare(b.date || '')),
+      },
+      {
+        key: 'past',
+        title: 'Sudah lewat',
+        dim: true,
+        list: filtered.filter((e) => (e.date || '') < today).sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+      },
+    ];
+  }, [events, searchQuery, today]);
 
   // =========================================================================
-  // VIEW 1: EVENT LIST (Daftar Acara)
+  // VIEW 1: DAFTAR ACARA (dikelompokkan Akan datang / Sudah lewat, seperti SnapHub)
   // =========================================================================
   if (!selectedEvent) {
+    const hasAny = eventGroups.some((g) => g.list.length > 0);
     return (
-      <div className="space-y-6">
-        {/* Top Header */}
-        <div className="bg-white border border-line rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold font-heading text-ink-900">
-              Antrean
-            </h2>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={fetchEvents}
-              className="p-2.5 rounded-xl border border-line bg-white hover:bg-bg text-ink-700 transition shadow-2xs cursor-pointer"
-              title="Segarkan Data"
-            >
-              <FiRefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+      <div className="space-y-4 sm:space-y-6">
+        <div className="bg-white border border-line rounded-2xl p-4 sm:p-5 shadow-xs flex items-center justify-between gap-3">
+          <h2 className="text-xl sm:text-2xl font-bold font-heading text-ink-900">Antrean</h2>
+          <div className="flex items-center gap-2 overflow-x-auto shrink-0">
+            <button type="button" onClick={fetchEvents} className={iconBtn} aria-label="Segarkan data">
+              <FiRefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             </button>
             <button
               type="button"
               onClick={handleCreateEvent}
-              className="bg-yellow-400 hover:bg-yellow-300 text-ink-900 font-bold text-xs sm:text-sm py-2.5 px-4 rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              className="shrink-0 min-h-11 bg-yellow-500 hover:bg-yellow-400 text-ink-900 font-bold text-sm px-4 rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
             >
               <FiPlus size={16} />
               <span>Tambah Acara</span>
@@ -457,489 +246,214 @@ export default function AdminQueue() {
           </div>
         </div>
 
-        {/* Search Bar */}
         <div className="relative">
-          <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-500 text-sm" />
+          <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-500 text-sm" aria-hidden="true" />
           <input
-            type="text"
+            type="search"
+            aria-label="Cari acara"
             placeholder="Cari acara..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-white border border-line rounded-xl text-xs sm:text-sm font-medium text-ink-900 placeholder:text-ink-500 focus:outline-none focus:border-yellow-400 shadow-2xs transition"
+            className="w-full min-h-11 pl-10 pr-4 bg-white border border-line rounded-xl text-sm font-medium text-ink-900 placeholder:text-ink-500 focus:outline-none focus:border-yellow-500 shadow-2xs transition"
           />
         </div>
 
-        {/* Events Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {loading ? (
-            <div className="col-span-full py-16 text-center text-ink-500">
-              <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-              <p className="text-xs">Memuat daftar acara...</p>
-            </div>
-          ) : filteredEvents.length === 0 ? (
-            <div className="col-span-full bg-white border border-line rounded-2xl p-12 text-center text-xs text-ink-500">
-              Tidak ada acara ditemukan. Klik &quot;Tambah Acara&quot; untuk membuat baru.
-            </div>
-          ) : (
-            filteredEvents.map((ev) => (
-              <div
-                key={ev.id}
-                onClick={() => handleEnterEvent(ev)}
-                className="bg-white border border-line hover:border-yellow-400 rounded-2xl p-5 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="font-heading font-bold text-base text-ink-900 group-hover:text-yellow-600 transition-colors">
-                      {ev.name}
-                    </h3>
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-800 border border-yellow-200 shrink-0">
-                      Aktif
-                    </span>
-                  </div>
-                  <p className="text-xs tabular-nums text-ink-500 mt-1">
-                    {formatDate(ev.date)} • {ev.venue || 'Venue belum diatur'}
-                  </p>
-                </div>
-
-                <div className="pt-3 border-t border-line flex items-center justify-between">
-                  <span className="text-xs tabular-nums text-ink-500">
-                    Token: {ev.queue_token}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEnterEvent(ev);
-                    }}
-                    className="text-xs font-bold bg-yellow-400 hover:bg-yellow-300 text-ink-900 px-3.5 py-1.5 rounded-lg shadow-2xs transition"
-                  >
-                    Kelola Antrean
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        {loading ? (
+          <div className="bg-white border border-line rounded-2xl divide-y divide-line overflow-hidden" aria-busy="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-18 animate-pulse bg-bg/60" />
+            ))}
+          </div>
+        ) : loadError ? (
+          <div className="bg-white border border-line rounded-2xl p-10 text-center">
+            <p className="text-sm font-semibold text-ink-900">Gagal memuat daftar acara</p>
+            <button
+              type="button"
+              onClick={fetchEvents}
+              className="mt-3 min-h-11 px-4 rounded-xl border border-line bg-white text-xs font-bold text-ink-700 hover:bg-bg cursor-pointer"
+            >
+              Coba lagi
+            </button>
+          </div>
+        ) : !hasAny ? (
+          <div className="bg-white border border-line rounded-2xl p-12 text-center text-sm text-ink-500">
+            {events.length === 0 ? 'Belum ada acara. Klik "Tambah Acara" untuk membuat baru.' : 'Tidak ada acara yang cocok.'}
+          </div>
+        ) : (
+          eventGroups.map(
+            (group) =>
+              group.list.length > 0 && (
+                <section key={group.key}>
+                  <h3 className="text-sm font-semibold text-ink-500 mb-2 px-1">
+                    {group.title} · {group.list.length}
+                  </h3>
+                  <ul className="bg-white border border-line rounded-2xl divide-y divide-line overflow-hidden shadow-xs">
+                    {group.list.map((ev) => {
+                      const d = ev.date && !group.dim ? daysUntil(ev.date, today) : null;
+                      return (
+                        <li key={ev.id}>
+                          <button
+                            type="button"
+                            onClick={() => handleEnterEvent(ev)}
+                            className="w-full min-h-18 flex items-center gap-4 text-left px-4 py-3 hover:bg-yellow-50/60 transition-colors cursor-pointer"
+                          >
+                            <div className="w-11 shrink-0 text-center leading-none">
+                              <div className="text-lg font-bold tabular-nums text-ink-900">
+                                {ev.date ? Number(ev.date.slice(8, 10)) : '–'}
+                              </div>
+                              <div className="text-xs text-ink-500 mt-1">
+                                {ev.date ? MONTHS[Number(ev.date.slice(5, 7)) - 1] : ''}
+                              </div>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className={`font-semibold truncate ${group.dim ? 'text-ink-500' : 'text-ink-900'}`}>{ev.name}</p>
+                              <p className="text-xs text-ink-500 truncate">
+                                {d !== null && (d === 0 ? 'Hari ini' : d === 1 ? 'Besok' : `${d} hari lagi`)}
+                                {d !== null && ev.venue ? ' • ' : ''}
+                                {ev.venue || (d === null ? 'Venue belum diatur' : '')}
+                              </p>
+                            </div>
+                            <FiChevronRight className="text-ink-500 shrink-0" aria-hidden="true" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )
+          )
+        )}
       </div>
     );
   }
 
   // =========================================================================
-  // VIEW 2: EVENT WORKSPACE (Masuk ke Acara - SnapHub Style)
+  // VIEW 2: RUANG KERJA ACARA
   // =========================================================================
   const tvUrl = queueDisplayUrl(selectedEvent);
   const qrUrl = queueQrUrl(selectedEvent);
   const guestUrl = queueGuestUrl(selectedEvent);
-  const crewUrlLink = queueCrewUrl(selectedEvent);
+  // queueCrewUrl akan jatuh ke token lain bila token kru kosong, jadi tautan hanya dibuat saat token kru ada.
+  const crewUrlLink = selectedEvent.queue_crew_token ? queueCrewUrl(selectedEvent) : '';
   const liveCustomerUrl = liveUrl(selectedEvent);
 
+  const quickLinks = [
+    { key: 'tv', label: 'Layar TV', icon: <FiTv size={14} />, url: tvUrl },
+    { key: 'qr', label: 'Kios QR', icon: <FiUsers size={14} />, url: qrUrl },
+    { key: 'guest', label: 'Tiket Tamu', icon: <FiCopy size={14} />, url: guestUrl },
+    { key: 'crew', label: 'Terminal Kru', icon: <FiUserCheck size={14} />, url: crewUrlLink },
+  ].filter((l) => l.url);
+
+  const percentMode = isPercentMode(selectedEvent);
+
   return (
-    <div className="space-y-6">
-      {/* Top Header with Back Navigation */}
-      <div className="bg-white border border-line rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setSelectedEvent(null)}
-            className="p-2 text-ink-700 hover:text-ink-900 bg-bg hover:bg-yellow-50 rounded-xl border border-line transition cursor-pointer"
-            title="Kembali ke Daftar Acara"
-          >
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header: kembali + judul di kiri, aksi utama di kanan (tidak membungkus) */}
+      <div className="bg-white border border-line rounded-2xl p-4 sm:p-5 shadow-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <button type="button" onClick={() => setSelectedEvent(null)} className={iconBtn} aria-label="Kembali ke daftar acara">
             <FiArrowLeft size={16} />
           </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg sm:text-xl font-bold font-heading text-ink-900">
-                {selectedEvent.name}
-              </h2>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                {isQueueActive ? 'Antrean Dibuka' : 'Antrean Ditutup'}
-              </span>
-            </div>
-            <p className="text-xs tabular-nums text-ink-500 mt-0.5">
-              {formatDate(selectedEvent.date)} • Token: {selectedEvent.queue_token}
-            </p>
+          <div className="min-w-0">
+            <h2 className="text-lg sm:text-xl font-bold font-heading text-ink-900 truncate">{selectedEvent.name}</h2>
+            <p className="text-xs tabular-nums text-ink-500 mt-0.5">{formatDate(selectedEvent.date)}</p>
           </div>
         </div>
-
-        {/* Quick Toolbar */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={handleOpenConfig}
-            className="size-11 shrink-0 flex items-center justify-center rounded-xl border border-line bg-white hover:bg-yellow-50 text-ink-700 transition cursor-pointer"
-            aria-label="Pengaturan harga dan bagi hasil"
-            title="Pengaturan harga & bagi hasil"
-          >
+        <div className="flex items-center gap-2 overflow-x-auto shrink-0">
+          <button type="button" onClick={handleOpenConfig} className={iconBtn} aria-label="Pengaturan harga dan bagi hasil">
             <FiSettings size={18} />
           </button>
+        </div>
+      </div>
+
+      {/* Akses cepat: satu baris yang bisa digeser, tiap kartu = salin + buka */}
+      <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
+        {quickLinks.map((l) => (
+          <div
+            key={l.key}
+            className="shrink-0 min-w-50 flex-1 p-2 pl-3 bg-white border border-line rounded-xl flex items-center justify-between gap-2 shadow-xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="size-8 rounded-lg bg-yellow-100 text-yellow-800 flex items-center justify-center shrink-0">{l.icon}</span>
+              <span className="text-xs font-bold text-ink-900 truncate">{l.label}</span>
+            </div>
+            <div className="flex items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => handleCopy(l.url, l.key)}
+                className="size-11 flex items-center justify-center rounded-lg text-ink-500 hover:text-ink-900 hover:bg-bg transition cursor-pointer"
+                aria-label={`Salin tautan ${l.label}`}
+              >
+                {copiedKey === l.key ? <FiCheck size={15} className="text-emerald-600" /> : <FiCopy size={15} />}
+              </button>
+              <button
+                type="button"
+                onClick={() => openExternal(l.url)}
+                className="size-11 flex items-center justify-center rounded-lg text-ink-700 hover:text-ink-900 hover:bg-bg transition cursor-pointer"
+                aria-label={`Buka ${l.label}`}
+              >
+                <FiExternalLink size={15} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 border-b border-line pb-2 overflow-x-auto" role="tablist">
+        {TABS.map((t) => (
           <button
+            key={t.id}
             type="button"
-            onClick={() => setIsQueueActive(!isQueueActive)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
-              isQueueActive
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+            role="tab"
+            aria-selected={activeTab === t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`shrink-0 min-h-11 px-4 rounded-xl text-sm font-bold transition cursor-pointer ${
+              activeTab === t.id ? 'bg-yellow-500 text-ink-900 shadow-xs' : 'text-ink-700 hover:text-ink-900 hover:bg-yellow-50'
             }`}
           >
-            {isQueueActive ? 'Tutup Antrean' : 'Buka Antrean'}
+            {t.label}
           </button>
-          <button
-            type="button"
-            onClick={() => fetchEventQueues(selectedEvent)}
-            className="p-2 rounded-xl border border-line bg-white hover:bg-bg text-ink-700 transition shadow-2xs cursor-pointer"
-            title="Segarkan Data"
-          >
-            <FiRefreshCw size={14} />
-          </button>
-        </div>
+        ))}
       </div>
 
-      {/* 4 Quick Access Links to Display TV, QR Kiosk, Guest Ticket, and Crew Terminal */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        {/* Layar TV */}
-        <div className="p-3 bg-white border border-line rounded-xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-yellow-100 text-yellow-800 flex items-center justify-center shrink-0">
-              <FiTv size={14} />
-            </div>
-            <span className="text-xs font-bold text-ink-900 truncate">Layar TV</span>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleCopy(tvUrl, 'tv')}
-              className="p-1.5 text-ink-500 hover:text-ink-700 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Salin Link"
-            >
-              {copiedKey === 'tv' ? <FiCheck size={13} className="text-emerald-600" /> : <FiCopy size={13} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => openExternal(tvUrl)}
-              className="p-1.5 text-ink-700 hover:text-ink-900 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Buka Layar TV"
-            >
-              <FiExternalLink size={13} />
-            </button>
-          </div>
-        </div>
-
-        {/* Kios QR */}
-        <div className="p-3 bg-white border border-line rounded-xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-yellow-100 text-yellow-800 flex items-center justify-center shrink-0">
-              <FiUsers size={14} />
-            </div>
-            <span className="text-xs font-bold text-ink-900 truncate">Kios QR</span>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleCopy(qrUrl, 'qr')}
-              className="p-1.5 text-ink-500 hover:text-ink-700 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Salin Link"
-            >
-              {copiedKey === 'qr' ? <FiCheck size={13} className="text-emerald-600" /> : <FiCopy size={13} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => openExternal(qrUrl)}
-              className="p-1.5 text-ink-700 hover:text-ink-900 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Buka Kios QR"
-            >
-              <FiExternalLink size={13} />
-            </button>
-          </div>
-        </div>
-
-        {/* Tiket Tamu */}
-        <div className="p-3 bg-white border border-line rounded-xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-yellow-100 text-yellow-800 flex items-center justify-center shrink-0">
-              <FiCopy size={14} />
-            </div>
-            <span className="text-xs font-bold text-ink-900 truncate">Tiket Tamu</span>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleCopy(guestUrl, 'guest')}
-              className="p-1.5 text-ink-500 hover:text-ink-700 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Salin Link"
-            >
-              {copiedKey === 'guest' ? <FiCheck size={13} className="text-emerald-600" /> : <FiCopy size={13} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => openExternal(guestUrl)}
-              className="p-1.5 text-ink-700 hover:text-ink-900 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Buka Tiket Tamu"
-            >
-              <FiExternalLink size={13} />
-            </button>
-          </div>
-        </div>
-
-        {/* Terminal Kru */}
-        <div className="p-3 bg-white border border-line rounded-xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-yellow-100 text-yellow-800 flex items-center justify-center shrink-0">
-              <FiUserCheck size={14} />
-            </div>
-            <span className="text-xs font-bold text-ink-900 truncate">Terminal Kru</span>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleCopy(crewUrlLink, 'crew')}
-              className="p-1.5 text-ink-500 hover:text-ink-700 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Salin Link"
-            >
-              {copiedKey === 'crew' ? <FiCheck size={13} className="text-emerald-600" /> : <FiCopy size={13} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => openExternal(crewUrlLink)}
-              className="p-1.5 text-ink-700 hover:text-ink-900 rounded-lg hover:bg-bg transition cursor-pointer"
-              title="Buka Terminal Kru"
-            >
-              <FiExternalLink size={13} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs Inside Event: Kontrol Antrean | Session Kru | Live Customer */}
-      <div className="flex items-center gap-2 border-b border-line pb-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab('queue')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-            activeTab === 'queue'
-              ? 'bg-yellow-400 text-ink-900 shadow-xs'
-              : 'text-ink-700 hover:text-ink-900 hover:bg-yellow-50'
-          }`}
-        >
-          Kontrol Antrean
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('crew')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-            activeTab === 'crew'
-              ? 'bg-yellow-400 text-ink-900 shadow-xs'
-              : 'text-ink-700 hover:text-ink-900 hover:bg-yellow-50'
-          }`}
-        >
-          Session Kru
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('customer')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-            activeTab === 'customer'
-              ? 'bg-yellow-400 text-ink-900 shadow-xs'
-              : 'text-ink-700 hover:text-ink-900 hover:bg-yellow-50'
-          }`}
-        >
-          Live Customer
-        </button>
-      </div>
-
-      {/* TAB 1: KONTROL ANTREAN */}
       {activeTab === 'queue' && (
-        <div className="space-y-6">
-          {/* Main Calling Box (Papan Panggilan Utama) */}
-          <div className="bg-white border border-line rounded-2xl p-6 shadow-xs flex flex-col gap-5">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="text-center md:text-left">
-                <span className="text-xs font-semibold text-ink-500 uppercase tracking-wider block">
-                  Sedang Dipanggil
-                </span>
-                <div className="flex items-baseline justify-center md:justify-start gap-3 mt-1">
-                  <span className="font-heading font-bold text-5xl sm:text-6xl text-ink-900 tabular-nums tracking-tight">
-                    {currentCalled ? currentCalled.queue_number : '--'}
-                  </span>
-                  {currentCalled && (
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                      {currentCalled.customer_name || 'Tamu Booth'}
-                    </span>
-                  )}
-                </div>
-              </div>
+        <div className="space-y-4 sm:space-y-6">
+          {/* Admin memakai 'admin:<id>' (hanya sah untuk user login) sehingga tidak bergantung pada link kru. */}
+          <QueueConsole
+            key={selectedEvent.id}
+            token={`admin:${selectedEvent.id}`}
+            onSessionsChanged={() => reloadSelected(selectedEvent.id)}
+          />
 
-              {/* Calling Buttons */}
-              <div className="flex flex-wrap items-center justify-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleCallNext}
-                  disabled={waitingList.length === 0 || isCalling}
-                  className="bg-yellow-400 hover:bg-yellow-300 text-ink-900 font-bold px-5 py-3 rounded-xl shadow-xs transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
-                >
-                  <FiPlay size={16} />
-                  <span>Panggil Berikutnya</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleRecall}
-                  disabled={!currentCalled}
-                  className="bg-white hover:bg-bg text-ink-700 font-semibold border border-line px-4 py-3 rounded-xl shadow-2xs transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
-                >
-                  <FiVolume2 size={16} className="text-yellow-600" />
-                  <span>Panggil Ulang</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCompleteCurrent}
-                  disabled={!currentCalled}
-                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold border border-emerald-200 px-4 py-3 rounded-xl shadow-2xs transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                >
-                  <FiCheckCircle size={16} />
-                  <span>Selesai</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSkipCurrent}
-                  disabled={!currentCalled}
-                  className="bg-bg hover:bg-yellow-50 text-ink-700 font-semibold border border-line px-4 py-3 rounded-xl transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                >
-                  <FiSkipForward size={16} />
-                  <span>Lewati</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Live Session Configuration for Currently Called Ticket */}
-            {currentCalled && (
-              <div className="pt-4 border-t border-line bg-bg/80 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  {!isPercentMode(selectedEvent) ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-ink-700">Jenis:</span>
-                      <div className="inline-flex rounded-lg border border-line bg-white p-0.5">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleCurrentNoVoucher(false)}
-                          className={`px-2.5 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
-                            !currentCalled.no_voucher
-                              ? 'bg-yellow-400 text-ink-900 shadow-2xs'
-                              : 'text-ink-700 hover:text-ink-900'
-                          }`}
-                        >
-                          Voucher ({formatRupiah(selectedEvent.voucher_price || VOUCHER_PRICE)})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleCurrentNoVoucher(true)}
-                          className={`px-2.5 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
-                            currentCalled.no_voucher
-                              ? 'bg-ink-900 text-white shadow-2xs'
-                              : 'text-ink-700 hover:text-ink-900'
-                          }`}
-                        >
-                          Non-Voucher ({formatRupiah(selectedEvent.no_voucher_price || NO_VOUCHER_PRICE)})
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-ink-700">Tarif Sesi:</span>
-                      <span className="text-xs font-bold tabular-nums text-ink-900 bg-white px-2.5 py-1 rounded-md border border-line">
-                        {formatRupiah(selectedEvent.session_price || SESSION_PRICE)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Extra Prints Stepper */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-ink-700">Extra Print:</span>
-                    <div className="flex items-center border border-line rounded-lg bg-white overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => handleChangeCurrentPrints(-1)}
-                        disabled={!currentCalled.prints || currentCalled.prints <= 0}
-                        className="w-7 h-7 flex items-center justify-center text-ink-700 hover:bg-yellow-50 disabled:opacity-40 transition cursor-pointer"
-                      >
-                        <FiMinus size={12} />
-                      </button>
-                      <span className="w-8 text-center text-xs font-bold tabular-nums text-ink-900">
-                        {currentCalled.prints || 0}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleChangeCurrentPrints(1)}
-                        className="w-7 h-7 flex items-center justify-center text-ink-700 hover:bg-yellow-50 transition cursor-pointer"
-                      >
-                        <FiPlus size={12} />
-                      </button>
-                    </div>
-                    <span className="text-xs text-ink-500 tabular-nums">
-                      (@{formatRupiah(selectedEvent.print_price || PRINT_PRICE)})
-                    </span>
-                  </div>
-                </div>
-
-                {/* Live total estimation & auto-session checkbox */}
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <span className="text-xs text-ink-500 uppercase font-semibold block">Total Sesi Ini</span>
-                    <span className="text-sm font-bold tabular-nums text-emerald-700">
-                      {formatRupiah(sessionPrice(currentCalled, selectedEvent))}
-                    </span>
-                  </div>
-                  <label className="flex items-center gap-1.5 text-xs text-ink-700 cursor-pointer pl-3 border-l border-line">
-                    <input
-                      type="checkbox"
-                      checked={autoSession}
-                      onChange={(e) => setAutoSession(e.target.checked)}
-                      className="rounded border-ink-300 text-yellow-800 focus:ring-yellow-400"
-                    />
-                    <span>Catat ke Sesi</span>
-                  </label>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 4 Financial & Session Summary Cards (SnapHub Style) */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-ink-500">Total Sesi Foto</span>
-                <span className="w-7 h-7 rounded-lg bg-yellow-50 text-yellow-700 flex items-center justify-center">
+                <span className="size-7 rounded-lg bg-yellow-50 text-yellow-800 flex items-center justify-center">
                   <FiCamera size={14} />
                 </span>
               </div>
-              <p className="font-heading font-bold text-2xl text-ink-900 mt-2 tabular-nums">
-                {(selectedEvent.sessions || []).length}
-              </p>
-              <p className="text-xs text-ink-500 mt-0.5 tabular-nums">
-                {voucherCount(selectedEvent)} voucher terpakai
-              </p>
+              <p className="font-heading font-bold text-2xl text-ink-900 mt-2 tabular-nums">{(selectedEvent.sessions || []).length}</p>
+              <p className="text-xs text-ink-500 mt-0.5 tabular-nums">{voucherCount(selectedEvent)} voucher terpakai</p>
             </div>
 
             <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-ink-500">Omzet Kotor Sesi</span>
-                <span className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                <span className="size-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
                   <FiDollarSign size={14} />
                 </span>
               </div>
-              <p className="font-heading font-bold text-xl sm:text-2xl text-emerald-600 mt-2 tabular-nums">
+              <p className="font-heading font-bold text-xl sm:text-2xl text-emerald-700 mt-2 tabular-nums">
                 {formatRupiah(eventTotal(selectedEvent))}
               </p>
-              <p className="text-xs text-ink-500 mt-0.5">
-                Semua sesi terdata
-              </p>
+              <p className="text-xs text-ink-500 mt-0.5">Semua sesi terdata</p>
             </div>
 
             <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-ink-500">Bagi Hasil Mitra</span>
-                <span className="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
+                <span className="size-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
                   <FiPercent size={14} />
                 </span>
               </div>
@@ -947,7 +461,7 @@ export default function AdminQueue() {
                 {formatRupiah(eventSharing(selectedEvent))}
               </p>
               <p className="text-xs text-ink-500 mt-0.5 tabular-nums">
-                {isPercentMode(selectedEvent)
+                {percentMode
                   ? `${selectedEvent.share_percent || 20}% dari omzet kotor`
                   : `@${formatRupiah(selectedEvent.share_per_voucher || 0)} / voucher`}
               </p>
@@ -956,285 +470,117 @@ export default function AdminQueue() {
             <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-ink-500">Laba Bersih</span>
-                <span className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                <span className="size-7 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
                   <FiDollarSign size={14} />
                 </span>
               </div>
               <p className="font-heading font-bold text-xl sm:text-2xl text-indigo-700 mt-2 tabular-nums">
                 {formatRupiah(eventStudioNet(selectedEvent))}
               </p>
-              <p className="text-xs text-ink-500 mt-0.5">
-                Omzet dikurangi bagi hasil
-              </p>
-            </div>
-          </div>
-
-          {/* Metric Stats Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
-              <span className="text-xs font-semibold text-ink-500">Dipanggil</span>
-              <p className="font-heading font-bold text-2xl text-ink-900 mt-1 tabular-nums">
-                {currentCalled ? '1' : '0'}
-              </p>
-            </div>
-            <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
-              <span className="text-xs font-semibold text-ink-500">Menunggu</span>
-              <p className="font-heading font-bold text-2xl text-yellow-600 mt-1 tabular-nums">
-                {waitingList.length}
-              </p>
-            </div>
-            <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
-              <span className="text-xs font-semibold text-ink-500">Selesai</span>
-              <p className="font-heading font-bold text-2xl text-emerald-600 mt-1 tabular-nums">
-                {completedList.length}
-              </p>
-            </div>
-            <div className="bg-white border border-line rounded-2xl p-4 shadow-xs">
-              <span className="text-xs font-semibold text-ink-500">Dilewati</span>
-              <p className="font-heading font-bold text-2xl text-ink-500 mt-1 tabular-nums">
-                {skippedList.length}
-              </p>
-            </div>
-          </div>
-
-          {/* Action Row & Queue List Filter */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              {[
-                { id: 'all', label: `Semua (${queues.length})` },
-                { id: 'waiting', label: `Menunggu (${waitingList.length})` },
-                { id: 'called', label: `Dipanggil (${currentCalled ? 1 : 0})` },
-                { id: 'completed', label: `Selesai (${completedList.length})` },
-                { id: 'skipped', label: `Dilewati (${skippedList.length})` },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setQueueFilter(f.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                    queueFilter === f.id
-                      ? 'bg-ink-900 text-white'
-                      : 'bg-white text-ink-700 border border-line hover:bg-bg'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleAddManualQueue}
-                className="bg-yellow-400 hover:bg-yellow-300 text-ink-900 font-bold text-xs py-2 px-3.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <FiPlus size={15} />
-                <span>Tambah Antrean</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleResetQueue}
-                className="bg-white hover:bg-red-50 text-ink-700 hover:text-red-600 border border-line font-semibold text-xs py-2 px-3 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
-                title="Reset Antrean"
-              >
-                <FiTrash2 size={14} />
-                <span>Reset</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Queue Table */}
-          <div className="bg-white border border-line rounded-2xl overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-line bg-bg text-ink-700 font-bold">
-                    <th className="py-3 px-4 w-12 text-center">No</th>
-                    <th className="py-3 px-4">Nomor Antrean</th>
-                    <th className="py-3 px-4">Nama Tamu</th>
-                    <th className="py-3 px-4">Waktu</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-right">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {filteredQueues.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-xs text-ink-500">
-                        Tidak ada antrean dalam kategori ini.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredQueues.map((q, idx) => (
-                      <tr key={q.id} className="hover:bg-bg/60 transition">
-                        <td className="py-3 px-4 text-center tabular-nums text-ink-500">{idx + 1}</td>
-                        <td className="py-3 px-4 tabular-nums font-bold text-base text-ink-900">
-                          {q.queue_number}
-                        </td>
-                        <td className="py-3 px-4 font-medium text-ink-700">
-                          {q.customer_name || 'Tamu Mandiri'}
-                        </td>
-                        <td className="py-3 px-4 tabular-nums text-ink-500">
-                          {formatDateTime(q.created_at)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                              q.status === 'called'
-                                ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
-                                : q.status === 'completed'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                : q.status === 'skipped'
-                                ? 'bg-yellow-50 text-ink-700 border border-line'
-                                : 'bg-amber-100 text-amber-800 border border-amber-200'
-                            }`}
-                          >
-                            {q.status === 'called'
-                              ? 'Dipanggil'
-                              : q.status === 'completed'
-                              ? 'Selesai'
-                              : q.status === 'skipped'
-                              ? 'Dilewati'
-                              : 'Menunggu'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {q.status === 'waiting' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                unlockAudio();
-                                playChime();
-                                const updated = queues.map((it) => (it.id === q.id ? { ...it, status: 'called' } : it));
-                                setQueues(updated);
-                                toast.success(`Memanggil ${q.queue_number}`);
-                              }}
-                              className="text-xs font-bold text-ink-900 bg-yellow-400 hover:bg-yellow-300 px-3 py-1 rounded-lg shadow-2xs transition"
-                            >
-                              Panggil
-                            </button>
-                          )}
-                          {q.status === 'called' && (
-                            <button
-                              type="button"
-                              onClick={handleCompleteCurrent}
-                              className="text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-3 py-1 rounded-lg transition"
-                            >
-                              Selesaikan
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+              <p className="text-xs text-ink-500 mt-0.5">Omzet dikurangi bagi hasil</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 2: SESSION KRU */}
-      {activeTab === 'crew' && (
-        <div className="space-y-6">
-          <div className="bg-white border border-line rounded-2xl p-6 shadow-xs space-y-5">
-            <h3 className="font-heading font-bold text-base text-ink-900 pb-3 border-b border-line">
-              Session Akses Kru Booth
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 bg-bg border border-line rounded-xl space-y-2">
-                <span className="text-xs font-semibold text-ink-500">Token Session Kru</span>
-                <p className="tabular-nums font-bold text-lg text-ink-900">
-                  {selectedEvent.queue_crew_token}
-                </p>
-                <p className="text-xs text-ink-500">
-                  Gunakan token ini untuk otentikasi kru tanpa memerlukan akun super admin.
-                </p>
-              </div>
-
-              <div className="p-4 bg-bg border border-line rounded-xl space-y-2">
-                <span className="text-xs font-semibold text-ink-500">Tautan Terminal Kru</span>
-                <p className="tabular-nums text-xs text-ink-700 truncate">
-                  {crewUrlLink}
-                </p>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(crewUrlLink, 'crew_tab')}
-                    className="px-3 py-1.5 bg-white border border-line text-xs font-semibold text-ink-700 rounded-lg hover:bg-yellow-50 transition flex items-center gap-1.5"
-                  >
-                    <FiCopy size={13} />
-                    <span>Salin Link Kru</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openExternal(crewUrlLink)}
-                    className="px-3 py-1.5 bg-yellow-400 text-xs font-bold text-ink-900 rounded-lg hover:bg-yellow-300 transition flex items-center gap-1.5"
-                  >
-                    <FiExternalLink size={13} />
-                    <span>Buka Terminal Kru</span>
-                  </button>
-                </div>
-              </div>
+      {activeTab === 'access' && (
+        <div className="bg-white border border-line rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
+          <h3 className="font-heading font-bold text-base text-ink-900 pb-3 border-b border-line">Tautan &amp; Akses Acara</h3>
+          {[
+            {
+              key: 'guest_tab',
+              label: 'Antrean Tamu (QR)',
+              hint: 'Dibagikan ke tamu lewat QR di TV atau tablet.',
+              url: guestUrl,
+              wa: 'Ambil nomor antrean photobooth:',
+              actions: [{ key: 'regen', label: 'Buat ulang', icon: <FiRotateCcw size={13} />, onClick: regenerateGuestLink }],
+            },
+            {
+              key: 'crew_tab',
+              label: 'Terminal Kru (tanpa login)',
+              hint: 'Kru memanggil antrean dan mengatur cetak dari HP. Kirim ke WhatsApp kru booth.',
+              url: crewUrlLink,
+              wa: 'Terminal kru antrean:',
+              actions: [
+                { key: 'regen', label: 'Buat ulang', icon: <FiRotateCcw size={13} />, onClick: regenerateCrewLink },
+                { key: 'off', label: 'Nonaktifkan', icon: <FiSlash size={13} />, onClick: disableCrewLink, danger: true },
+              ],
+              emptyAction: { label: 'Aktifkan Link Kru', onClick: enableCrewLink },
+            },
+            {
+              key: 'live_tab',
+              label: 'Live Album Publik',
+              hint: 'Untuk mitra/pelanggan memantau sesi.',
+              url: liveCustomerUrl,
+              wa: 'Pantau sesi foto live:',
+              actions: [],
+            },
+          ].map((row) => (
+            <div key={row.key} className="p-4 bg-bg border border-line rounded-xl space-y-2">
+              <span className="text-xs font-semibold text-ink-700">{row.label}</span>
+              <p className="text-xs text-ink-500">{row.hint}</p>
+              {row.url ? (
+                <>
+                  <p className="tabular-nums text-xs text-ink-700 truncate">{row.url}</p>
+                  <div className="flex items-center gap-2 pt-1 overflow-x-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(row.url, row.key)}
+                      className="shrink-0 min-h-11 px-3.5 bg-white border border-line text-xs font-semibold text-ink-700 rounded-xl hover:bg-yellow-50 transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FiCopy size={13} />
+                      <span>Salin</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shareWhatsApp(row.wa, row.url)}
+                      className="shrink-0 min-h-11 px-3.5 bg-white border border-line text-xs font-semibold text-ink-700 rounded-xl hover:bg-yellow-50 transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <SiWhatsapp size={13} />
+                      <span>WhatsApp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openExternal(row.url)}
+                      className="shrink-0 min-h-11 px-3.5 bg-yellow-500 text-xs font-bold text-ink-900 rounded-xl hover:bg-yellow-400 transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FiExternalLink size={13} />
+                      <span>Buka</span>
+                    </button>
+                    {row.actions.map((act) => (
+                      <button
+                        key={act.key}
+                        type="button"
+                        onClick={act.onClick}
+                        className={`shrink-0 min-h-11 px-3.5 border text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
+                          act.danger
+                            ? 'bg-white border-red-200 text-red-700 hover:bg-red-50'
+                            : 'bg-white border-line text-ink-700 hover:bg-yellow-50'
+                        }`}
+                      >
+                        {act.icon}
+                        <span>{act.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                row.emptyAction && (
+                  <div className="pt-1">
+                    <p className="text-xs font-semibold text-amber-800 mb-2">Link kru sedang nonaktif.</p>
+                    <button
+                      type="button"
+                      onClick={row.emptyAction.onClick}
+                      className="min-h-11 px-4 bg-yellow-500 text-xs font-bold text-ink-900 rounded-xl hover:bg-yellow-400 transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FiPlus size={14} />
+                      <span>{row.emptyAction.label}</span>
+                    </button>
+                  </div>
+                )
+              )}
             </div>
-
-            <div className="pt-4 border-t border-line flex items-center justify-between">
-              <div>
-                <h4 className="font-heading font-bold text-sm text-ink-900">
-                  Otomatis Catat Sesi Foto
-                </h4>
-                <p className="text-xs text-ink-500">
-                  Saat kru menyelesaikan antrean, sesi foto otomatis dicatat ke pembukuan kas.
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={autoSession}
-                  onChange={(e) => setAutoSession(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-yellow-50 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-400" />
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: LIVE CUSTOMER */}
-      {activeTab === 'customer' && (
-        <div className="space-y-6">
-          <div className="bg-white border border-line rounded-2xl p-6 shadow-xs space-y-5">
-            <h3 className="font-heading font-bold text-base text-ink-900 pb-3 border-b border-line">
-              Live Album & Countdown Customer
-            </h3>
-
-            <div className="p-4 bg-bg border border-line rounded-xl space-y-2">
-              <span className="text-xs font-semibold text-ink-500">Tautan Live Album Publik</span>
-              <p className="tabular-nums text-xs text-ink-700 truncate">
-                {liveCustomerUrl}
-              </p>
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleCopy(liveCustomerUrl, 'live_tab')}
-                  className="px-3 py-1.5 bg-white border border-line text-xs font-semibold text-ink-700 rounded-lg hover:bg-yellow-50 transition flex items-center gap-1.5"
-                >
-                  <FiCopy size={13} />
-                  <span>Salin Link Live</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openExternal(liveCustomerUrl)}
-                  className="px-3 py-1.5 bg-yellow-400 text-xs font-bold text-ink-900 rounded-lg hover:bg-yellow-300 transition flex items-center gap-1.5"
-                >
-                  <FiExternalLink size={13} />
-                  <span>Buka Live Customer</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       )}
     </div>

@@ -14,6 +14,7 @@ import {
   FiRefreshCw,
 } from 'react-icons/fi';
 import { supabase } from '@/lib/supabase';
+import { usePolling } from '@/lib/usePolling';
 
 const REFRESH_MS = 4000;
 
@@ -58,72 +59,44 @@ export default function LiveSessionPage({ params }) {
   const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'notfound' | 'error'
   const [updatedAt, setUpdatedAt] = useState(null);
 
-  const fetchLiveEvent = useCallback(async (tkn) => {
-    // Acara dibaca lewat RPC get_live_event (hanya data yang boleh dilihat pelanggan, tanpa harga & print).
+  // Acara dibaca lewat RPC get_live_event (hanya data yang boleh dilihat pelanggan, tanpa harga & print).
+  // Galat jaringan dilempar (tampilan terakhir dipertahankan); data kosong berarti token tidak valid.
+  const load = useCallback(async () => {
     try {
-      if (supabase && supabase.rpc) {
-        const { data, error } = await supabase.rpc('get_live_event', { p_token: tkn });
-        if (!error && data) return data;
+      const { data, error } = await supabase.rpc('get_live_event', { p_token: token });
+      if (error) throw error;
+      if (!data) {
+        setEvent(null);
+        setStatus('notfound');
+        return;
       }
-    } catch (e) {
-      console.warn('RPC get_live_event error:', e);
+      setEvent(data);
+      setStatus('ready');
+      setUpdatedAt(new Date());
+    } catch {
+      setStatus((s) => (s === 'ready' ? s : 'error'));
     }
-
-    // 2. Coba query langsung dari financial_events bila ada
-    try {
-      if (supabase && supabase.from) {
-        const { data: ev, error } = await supabase
-          .from('financial_events')
-          .select('*')
-          .or(`share_token.eq.${tkn},slug.eq.${slug}`)
-          .maybeSingle();
-        if (!error && ev) return ev;
-      }
-    } catch (e) {
-      console.warn('DB read error:', e);
-    }
-
-    // Tidak ditemukan: jangan mengarang acara.
-    return null;
-  }, [slug]);
+  }, [token]);
 
   useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        const data = await fetchLiveEvent(token);
-        if (!active) return;
-        if (!data) {
-          setEvent(null);
-          setStatus('notfound');
-          return;
-        }
-        setEvent(data);
-        setStatus('ready');
-        setUpdatedAt(new Date());
-      } catch (err) {
-        if (!active) return;
-        setStatus((s) => (s === 'ready' ? s : 'error'));
-      }
+    const init = async () => {
+      await load();
     };
+    init();
+  }, [load]);
 
-    load();
-    const timer = setInterval(() => load(), REFRESH_MS);
-
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [token, fetchLiveEvent]);
+  // Polling berhenti saat tab tersembunyi dan kembali segar begitu tab dibuka lagi.
+  usePolling(load, REFRESH_MS, status !== 'notfound');
 
   const sessions = event?.sessions || [];
   const voucherCount = sessions.filter((s) => !s.no_voucher).length;
   const noVoucherCount = sessions.length - voucherCount;
   const percent = event?.pricing_mode === 'percent';
-  const sharing = percent
-    ? Number(event?.sharing_amount || 0)
-    : voucherCount * (Number(event?.share_per_voucher) || 10000);
+  // Nilai sharing dihitung server (sama dengan pembukuan kas); hitung lokal hanya cadangan untuk data lama.
+  const sharing =
+    event?.sharing_amount != null
+      ? Number(event.sharing_amount)
+      : voucherCount * (Number(event?.share_per_voucher) || 10000);
 
   // Kelompokkan sesi per tanggal, terbaru di atas
   const groups = [];

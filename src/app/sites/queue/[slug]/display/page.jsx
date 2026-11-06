@@ -8,12 +8,14 @@ import { useModal } from '@/components/ui/ModalProvider';
 import { usePolling } from '@/lib/usePolling';
 import { unlockAudio, playChime, isAudioReady } from '@/lib/chime';
 import { fetchQueueState } from '@/lib/queueService';
+import { ACTIVE_STATUSES } from '@/lib/queueStatus';
 
 export default function TVDisplayPage({ params }) {
   const unwrappedParams = use(params);
   const slug = unwrappedParams.slug;
 
   const [queueState, setQueueState] = useState([]);
+  const [eventName, setEventName] = useState('');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const prevCalledRef = useRef(null);
   const { open, closeTop } = useModal();
@@ -21,10 +23,14 @@ export default function TVDisplayPage({ params }) {
   // Load queue state
   const loadData = async () => {
     const res = await fetchQueueState(slug);
-    const list = Array.isArray(res) ? res : res?.queues || [];
+    // Gagal memuat: pertahankan tampilan terakhir agar TV tidak berkedip kosong saat sinyal putus sesaat.
+    if (!res) return;
+    const list = res.board || [];
     setQueueState(list);
+    if (res.event?.name) setEventName(res.event.name);
 
-    const currentCalled = list?.find((q) => q.status === 'called');
+    // 'heading' & 'serving' tetap dianggap aktif: nomor tidak boleh hilang dari TV setelah tamu menekan "Menuju booth".
+    const currentCalled = list?.find((q) => ACTIVE_STATUSES.includes(q.status));
     if (currentCalled) {
       // Check if new ticket is called or recall counter increased
       const prev = prevCalledRef.current;
@@ -98,7 +104,7 @@ export default function TVDisplayPage({ params }) {
     }
   };
 
-  const currentlyCalled = queueState.find((q) => q.status === 'called');
+  const currentlyCalled = queueState.find((q) => ACTIVE_STATUSES.includes(q.status));
   const upcomingQueue = queueState
     .filter((q) => q.status === 'waiting')
     .slice(0, 6);
@@ -116,7 +122,7 @@ export default function TVDisplayPage({ params }) {
             <span className="text-xs uppercase font-extrabold tracking-widest text-ink-500">
               Layar Antrian Panggung
             </span>
-            <h2 className="font-heading font-bold text-lg text-ink-900">Event: {slug}</h2>
+            <h2 className="font-heading font-bold text-lg text-ink-900">{eventName || 'Memuat acara...'}</h2>
           </div>
         </div>
 
@@ -168,7 +174,7 @@ export default function TVDisplayPage({ params }) {
               </span>
               <div className="mt-4">
                 <span className="text-xl sm:text-2xl font-heading font-bold text-yellow-800">
-                  {currentlyCalled ? `Tamu: ${currentlyCalled.initials || currentlyCalled.customer_name || currentlyCalled.queue_number}` : 'Menunggu Panggilan Berikutnya'}
+                  {currentlyCalled ? (currentlyCalled.name ? `Tamu: ${currentlyCalled.name}` : 'Silakan menuju booth') : 'Menunggu Panggilan Berikutnya'}
                 </span>
               </div>
             </div>
@@ -216,7 +222,7 @@ export default function TVDisplayPage({ params }) {
                     </span>
                   </div>
                   <span className="text-xs font-bold text-yellow-800 bg-yellow-200/80 px-2.5 py-1 rounded-full">
-                    {item.initials || item.customer_name || `Antrean ${item.queue_number}`}
+                    {item.name || 'Menunggu'}
                   </span>
                 </div>
               ))

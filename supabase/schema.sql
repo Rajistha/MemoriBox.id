@@ -57,6 +57,8 @@ alter table public.financial_events
 
 create index if not exists idx_financial_events_queue_token on public.financial_events(queue_token);
 create index if not exists idx_financial_events_queue_crew_token on public.financial_events(queue_crew_token);
+-- Antrean dibuka/ditutup (tamu tidak bisa mengambil nomor saat ditutup).
+alter table public.financial_events add column if not exists queue_open boolean not null default true;
 
 -- 1.2 Transaksi Keuangan (Pengeluaran Event & Biaya Operasional)
 create table if not exists public.transactions (
@@ -280,7 +282,7 @@ security definer
 set search_path = public
 as $$
   select id from public.financial_events
-  where p_token is not null and (queue_token = p_token or share_token = p_token or id::text = p_token)
+  where p_token is not null and length(p_token) >= 8 and queue_token = p_token
   limit 1;
 $$;
 
@@ -294,8 +296,13 @@ stable
 security definer
 set search_path = public
 as $$
+  -- Kru memakai queue_crew_token (>= 8 karakter). Admin yang login memakai 'admin:<id>' sehingga panel admin
+  -- tetap berfungsi walau link kru dinonaktifkan atau dibuat ulang. Anon tidak pernah lolos jalur admin.
   select id from public.financial_events
-  where p_token is not null and (queue_crew_token = p_token or crew_token = p_token or queue_token = p_token or id::text = p_token)
+  where p_token is not null and (
+    (length(p_token) >= 8 and queue_crew_token = p_token)
+    or (auth.role() = 'authenticated' and p_token = 'admin:' || id::text)
+  )
   limit 1;
 $$;
 
@@ -316,7 +323,7 @@ declare
   v_done int;
   v_avg numeric := 300;
 begin
-  select jsonb_build_object('id', e.id, 'name', e.name, 'date', e.date)
+  select jsonb_build_object('id', e.id, 'name', e.name, 'date', e.date, 'queue_open', coalesce(e.queue_open, true))
   into v_event from public.financial_events e where e.id = p_event_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
@@ -400,6 +407,10 @@ begin
 
   perform 1 from public.financial_events where id = v_event_id for update;
 
+  if not coalesce((select queue_open from public.financial_events where id = v_event_id), true) then
+    raise exception 'Antrean sedang ditutup';
+  end if;
+
   if (select count(*) from public.event_queues
       where event_id = v_event_id and created_at > now() - interval '1 minute') >= 60 then
     raise exception 'Terlalu banyak permintaan, coba lagi sebentar';
@@ -478,6 +489,7 @@ begin
     'name', e.name,
     'date', e.date,
     'queue_token', e.queue_token,
+    'queue_open', coalesce(e.queue_open, true),
     'pricing_mode', coalesce(e.pricing_mode, 'voucher'),
     'session_price', coalesce(e.session_price, 45000),
     'voucher_price', coalesce(e.voucher_price, 30000),
@@ -786,6 +798,23 @@ begin
 end $$;
 
 grant execute on function public.crew_queue_remove(text, uuid) to anon, authenticated;
+
+-- Kru/admin: buka atau tutup pengambilan nomor oleh tamu.
+create or replace function public.crew_queue_set_open(p_token text, p_open boolean)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_event_id bigint := public.queue_crew_event_id(p_token);
+begin
+  if v_event_id is null then raise exception 'Akses tidak sah'; end if;
+  update public.financial_events set queue_open = coalesce(p_open, true) where id = v_event_id;
+  return coalesce(p_open, true);
+end $$;
+
+grant execute on function public.crew_queue_set_open(text, boolean) to anon, authenticated;
 
 -- Hitung ulang keuangan event otomatis saat sesi foto dicatat
 create or replace function public.recalc_event_finance(p_event_id bigint)
@@ -1103,7 +1132,11 @@ as $$
   select jsonb_build_object(
     'name', e.name,
     'date', e.date,
+    'pricing_mode', coalesce(e.pricing_mode, 'voucher'),
+    'share_percent', e.share_percent,
     'share_per_voucher', e.share_per_voucher,
+    'sharing_amount', coalesce((select sum(t.amount) from public.transactions t
+                                where t.event_id = e.id and t.auto_source = 'sharing_profit'), 0),
     'sessions', coalesce(
       (select jsonb_agg(jsonb_build_object(
           'id', s->>'id',
@@ -1113,7 +1146,7 @@ as $$
       '[]'::jsonb)
   )
   from public.financial_events e
-  where p_token is not null and e.share_token = p_token
+  where p_token is not null and length(p_token) >= 8 and e.share_token = p_token
   limit 1;
 $$;
 
@@ -1430,3 +1463,30 @@ begin
 
   perform set_config('memoribox.skip_sync', '0', true);
 end $$;
+
+-- Daftar acara ringan untuk panel admin: tanpa JSON sesi (bisa ribuan baris), hanya jumlah sesi dan pemasukan.
+create or replace function public.admin_event_list()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if auth.role() <> 'authenticated' then raise exception 'not allowed'; end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', e.id, 'name', e.name, 'date', e.date, 'venue', e.venue, 'income', e.income,
+      'session_count', jsonb_array_length(coalesce(e.sessions, '[]'::jsonb)),
+      'pricing_mode', e.pricing_mode, 'voucher_price', e.voucher_price, 'no_voucher_price', e.no_voucher_price,
+      'session_price', e.session_price, 'print_price', e.print_price,
+      'share_per_voucher', e.share_per_voucher, 'share_percent', e.share_percent,
+      'queue_token', e.queue_token, 'queue_crew_token', e.queue_crew_token,
+      'share_token', e.share_token, 'crew_token', e.crew_token, 'queue_open', e.queue_open
+    ) order by e.date desc)
+    from public.financial_events e
+  ), '[]'::jsonb);
+end $$;
+
+revoke execute on function public.admin_event_list() from public, anon;
+grant execute on function public.admin_event_list() to authenticated;

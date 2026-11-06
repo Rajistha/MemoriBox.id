@@ -314,7 +314,9 @@ export default function GuestQueuePage({ params }) {
 
       // Nomor hanya sah bila dibuat server; jika gagal, jangan membuat tiket palsu di perangkat.
       if (error || !data?.id) {
-        toast.error('Gagal mengambil nomor. Coba lagi.');
+        const closed = /ditutup/i.test(error?.message || '');
+        toast.error(closed ? 'Antrean sedang ditutup.' : 'Gagal mengambil nomor. Coba lagi.');
+        if (closed) refresh();
         return;
       }
 
@@ -416,7 +418,17 @@ export default function GuestQueuePage({ params }) {
         </div>
 
         {/* Guest Ticket Display or Action Card */}
-        {!ticket ? (
+        {!ticket && state?.event?.queue_open === false ? (
+          <div className="bg-white rounded-3xl border border-amber-200 p-6 sm:p-7 shadow-xs text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+              <FiBell size={22} />
+            </div>
+            <h2 className="text-xl font-heading font-extrabold text-slate-900">Antrean Sedang Ditutup</h2>
+            <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+              Pengambilan nomor belum dibuka atau sudah selesai. Hubungi kru di booth jika Anda ingin difoto.
+            </p>
+          </div>
+        ) : !ticket ? (
           /* Card Ambil Nomor Antrean (TANPA NAMA, TANPA WA - PERSIS SNAPHUB) */
           <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-xs text-center space-y-5">
             <div>
